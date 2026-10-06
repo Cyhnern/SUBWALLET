@@ -1,0 +1,44 @@
+# --- Bağımlılıklar ---
+node_modules/
+.pnp
+.pnp.js
+
+# --- Ortam değişkenleri (ASLA commit edilmemeli — şifreler, secret'lar içerir) ---
+.env
+.env.local
+.env.*.local
+apps/api/.env
+
+# --- Build çıktıları ---
+dist/
+build/
+.next/
+.turbo/
+coverage/
+
+# --- Expo / React Native ---
+.expo/
+apps/mobile/.expo/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+
+# --- Prisma ---
+# migrations/ klasörü BİLEREK commit edilir (ekip aynı şema geçmişini paylaşmalı)
+
+# --- Loglar ---
+*.log
+npm-debug.log*
+
+# --- Editör / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Test ---
+*.tsbuildinfo
