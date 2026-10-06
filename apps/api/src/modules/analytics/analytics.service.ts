@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { startOfUtcDay, utcHorizonEnd } from '../../common/date.util';
 import { normalizeToMonthly } from '../subscriptions/billing-cycle.util';
 
 export interface BurnRateResult {
@@ -62,7 +63,10 @@ export class AnalyticsService {
       include: { category: true },
     });
 
-    const grouped = new Map<string, { categoryName: string; monthlyTotal: number }>();
+    const grouped = new Map<
+      string,
+      { categoryName: string; monthlyTotal: number; colorHex: string | null }
+    >();
     for (const sub of subs) {
       const key = sub.categoryId ?? 'uncategorized';
       const name = sub.category?.name ?? 'Kategorisiz';
@@ -72,26 +76,38 @@ export class AnalyticsService {
       if (existing) {
         existing.monthlyTotal += monthly;
       } else {
-        grouped.set(key, { categoryName: name, monthlyTotal: monthly });
+        grouped.set(key, {
+          categoryName: name,
+          monthlyTotal: monthly,
+          colorHex: sub.category?.colorHex ?? null,
+        });
       }
     }
 
-    return Array.from(grouped.values())
-      .map((v) => ({ ...v, monthlyTotal: Math.round(v.monthlyTotal * 100) / 100 }))
+    const rows = Array.from(grouped.values()).map((v) => ({
+      ...v,
+      monthlyTotal: Math.round(v.monthlyTotal * 100) / 100,
+    }));
+    const grandTotal = rows.reduce((sum, r) => sum + r.monthlyTotal, 0);
+
+    return rows
+      .map((v) => ({
+        ...v,
+        sharePercent: grandTotal === 0 ? 0 : Math.round((v.monthlyTotal / grandTotal) * 100),
+      }))
       .sort((a, b) => b.monthlyTotal - a.monthlyTotal);
   }
 
   async upcomingRenewals(userId: string, days: number) {
-    const today = new Date();
-    const horizon = new Date();
-    horizon.setDate(today.getDate() + days);
+    const start = startOfUtcDay();
+    const horizon = utcHorizonEnd(days);
 
     return this.prisma.subscription.findMany({
       where: {
         userId,
         status: 'active',
         deletedAt: null,
-        nextBillingDate: { gte: today, lte: horizon },
+        nextBillingDate: { gte: start, lte: horizon },
       },
       include: { serviceProvider: true, category: true },
       orderBy: { nextBillingDate: 'asc' },

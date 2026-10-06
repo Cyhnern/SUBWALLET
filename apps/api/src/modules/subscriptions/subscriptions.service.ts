@@ -3,6 +3,7 @@ import { SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
+import { startOfUtcDay, utcHorizonEnd } from '../../common/date.util';
 import { calculateNextBillingDate } from './billing-cycle.util';
 
 // Modelde teknik olarak izin verilse de iş kuralı olarak izin verdiğimiz geçişler.
@@ -45,6 +46,7 @@ export class SubscriptionsService {
         nextBillingDate,
         status: dto.trialEndDate ? 'trial' : 'active',
       },
+      include: { serviceProvider: true, category: true },
     });
   }
 
@@ -194,15 +196,14 @@ export class SubscriptionsService {
 
   /** BullMQ zamanlayıcısının kullandığı sorgu — belirli gün aralığında yenilenecek aktif abonelikler. */
   async findRenewingWithin(days: number) {
-    const today = new Date();
-    const horizon = new Date();
-    horizon.setDate(today.getDate() + days);
+    const start = startOfUtcDay();
+    const horizon = utcHorizonEnd(days);
 
     return this.prisma.subscription.findMany({
       where: {
         status: 'active',
         deletedAt: null,
-        nextBillingDate: { gte: today, lte: horizon },
+        nextBillingDate: { gte: start, lte: horizon },
       },
       include: { user: { include: { notificationPreference: true } } },
     });

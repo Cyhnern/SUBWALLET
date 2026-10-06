@@ -6,9 +6,14 @@ import { NotificationsService } from '../notifications/notifications.service';
 
 export interface ZombieScore {
   subscriptionId: string;
+  name: string;
   score: number;
   isZombie: boolean;
   reasons: string[];
+}
+
+function displayName(sub: Subscription & { serviceProvider?: { name: string } | null }): string {
+  return sub.serviceProvider?.name ?? sub.customName ?? 'İsimsiz Abonelik';
 }
 
 const ZOMBIE_THRESHOLD = 50;
@@ -71,7 +76,13 @@ export class ZombieDetectorService {
       reasons.push('Deneme süresi bitti, hâlâ ücretli devam ediyor');
     }
 
-    return { subscriptionId: sub.id, score, isZombie: score >= ZOMBIE_THRESHOLD, reasons };
+    return {
+      subscriptionId: sub.id,
+      name: displayName(sub),
+      score,
+      isZombie: score >= ZOMBIE_THRESHOLD,
+      reasons,
+    };
   }
 
   private async getPriceIncreasePercent(subscriptionId: string, lookbackDays: number): Promise<number> {
@@ -96,6 +107,7 @@ export class ZombieDetectorService {
   async scanForUser(userId: string): Promise<ZombieScore[]> {
     const subs = await this.prisma.subscription.findMany({
       where: { userId, status: 'active', deletedAt: null },
+      include: { serviceProvider: true },
     });
 
     const scores = await Promise.all(subs.map((s) => this.scoreSubscription(s)));
@@ -109,7 +121,7 @@ export class ZombieDetectorService {
   async scanAllAndNotify(): Promise<{ scanned: number; flagged: number }> {
     const activeSubs = await this.prisma.subscription.findMany({
       where: { status: 'active', deletedAt: null },
-      include: { user: { include: { notificationPreference: true } } },
+      include: { user: { include: { notificationPreference: true } }, serviceProvider: true },
     });
 
     let flagged = 0;

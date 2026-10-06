@@ -52,6 +52,9 @@ packages/
 - ✅ `AnalyticsModule`: burn rate (kişisel + ortak hesap payları dahil, aylık normalize),
   kategoriye göre harcama dağılımı, yaklaşan yenilemeler, çok sinyalli zombi abonelik
   skorlama motoru (`ZombieDetectorService`) + haftalık otomatik tarama ve bildirim
+- ✅ `UsersModule`: profil okuma/güncelleme, bildirim tercihleri, hesap deaktivasyonu
+- ✅ `CategoriesModule`: sistem kategorileri + kullanıcı özel kategorileri
+- ✅ Expo mobil istemci (`apps/mobile`): auth, abonelik listesi/detay/CRUD, analiz panosu, profil
 
 ## Auth Akışını Hızlıca Test Etme
 
@@ -71,10 +74,10 @@ curl -X POST http://localhost:3000/api/v1/auth/refresh \
   -d '{"refreshToken":"<refreshToken>"}'
 ```
 
-## Henüz Yapılacaklar (dosyalarda `TODO` olarak işaretli)
+## Henüz Yapılacaklar
 
-- `UsersModule`, `CategoriesModule`: iskelet oluşturuldu, iş mantığı eklenecek
-- `NotificationsService`: Expo Push / Resend gerçek entegrasyonu (şu an sadece log + DB kaydı)
-- Mobil istemci (`apps/mobile`) henüz oluşturulmadı
+- `NotificationsService`: Expo Push / Resend gerçek entegrasyonu (şu an log + DB kaydı)
+- Ortak hesap ve maliyet paylaşımı ekranları henüz mobilde yok
+- Kur çevirimi (`exchange_rates`) gerçek döviz servisine bağlanacak
 
 Detaylı yol haritası için `abonelik-cuzdan-mimari-plan.md` dosyasındaki Bölüm 5'e bakınız.
