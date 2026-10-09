@@ -102,7 +102,7 @@ export class SharedAccountsService {
       throw new BadRequestException('Hesapta üye bulunmuyor');
     }
 
-    const results = [];
+    const results: any[] = [];
     for (const sub of account.subscriptions) {
       if (sub.status !== 'active') continue;
 
