@@ -89,3 +89,51 @@ export interface TokenPair {
   accessToken: string;
   refreshToken: string;
 }
+
+export interface SharedAccountMember {
+  id: string;
+  sharedAccountId: string;
+  userId: string;
+  role: 'owner' | 'admin' | 'member';
+  joinedAt: string;
+  user?: {
+    id: string;
+    fullName: string;
+    email: string;
+    avatarUrl: string | null;
+  };
+}
+
+export interface SharedAccount {
+  id: string;
+  name: string;
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
+  members: SharedAccountMember[];
+  subscriptions?: Subscription[];
+}
+
+export interface CostSplit {
+  id: string;
+  subscriptionId: string;
+  userId: string;
+  splitType: 'equal' | 'percentage' | 'fixed_amount';
+  splitValue: string | null;
+  computedAmount: string;
+  isSettled: boolean;
+  settledAt: string | null;
+  billingPeriodStart: string;
+  user?: {
+    id: string;
+    fullName: string;
+    email: string;
+  };
+  subscription?: {
+    id: string;
+    customName: string | null;
+    price: string;
+    currency: string;
+  };
+}
+

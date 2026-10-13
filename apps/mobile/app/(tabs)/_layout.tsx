@@ -36,6 +36,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="shared-accounts"
+        options={{
+          title: 'Ortak Hesaplar',
+          tabBarIcon: () => <TabIcon emoji="👥" />,
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profil',
