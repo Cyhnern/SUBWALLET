@@ -1,11 +1,14 @@
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, Pressable } from 'react-native';
 import { router } from 'expo-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { analyticsApi } from '../../src/api/analytics';
+import { subscriptionsApi } from '../../src/api/subscriptions';
 import { colors } from '../../src/theme';
 import { formatDate, formatMoney, subscriptionName } from '../../src/utils/format';
 
 export default function DashboardScreen() {
+  const queryClient = useQueryClient();
+
   const burnRate = useQuery({ queryKey: ['burn-rate'], queryFn: analyticsApi.burnRate });
   const zombies = useQuery({ queryKey: ['zombie-subscriptions'], queryFn: analyticsApi.zombieSubscriptions });
   const spending = useQuery({ queryKey: ['spending-by-category'], queryFn: analyticsApi.spendingByCategory });
@@ -13,6 +16,33 @@ export default function DashboardScreen() {
 
   const loading = burnRate.isLoading || zombies.isLoading || spending.isLoading || renewals.isLoading;
   const refreshing = burnRate.isRefetching || zombies.isRefetching || spending.isRefetching || renewals.isRefetching;
+
+  const markUsedMutation = useMutation({
+    mutationFn: (id: string) => subscriptionsApi.markUsed(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zombie-subscriptions'] });
+      queryClient.invalidateQueries({ queryKey: ['burn-rate'] });
+      queryClient.invalidateQueries({ queryKey: ['subscriptions'] });
+    },
+  });
+
+  const pauseMutation = useMutation({
+    mutationFn: (id: string) => subscriptionsApi.pause(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zombie-subscriptions'] });
+      queryClient.invalidateQueries({ queryKey: ['burn-rate'] });
+      queryClient.invalidateQueries({ queryKey: ['subscriptions'] });
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: string) => subscriptionsApi.cancel(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['zombie-subscriptions'] });
+      queryClient.invalidateQueries({ queryKey: ['burn-rate'] });
+      queryClient.invalidateQueries({ queryKey: ['subscriptions'] });
+    },
+  });
 
   function refetchAll() {
     burnRate.refetch();
@@ -98,28 +128,54 @@ export default function DashboardScreen() {
         </View>
       )}
 
-      <Text style={styles.sectionTitle}>Zombi Abonelikler</Text>
+      <Text style={styles.sectionTitle}>⚠️ Zombi Abonelikler & Risk Uyarıları</Text>
       {zombies.data && zombies.data.length > 0 ? (
         zombies.data.map((z) => (
-          <Pressable
-            key={z.subscriptionId}
-            style={styles.zombieCard}
-            onPress={() => router.push({ pathname: '/subscription/[id]', params: { id: z.subscriptionId } })}
-          >
-            <View style={styles.zombieHeader}>
-              <Text style={styles.zombieName}>{z.name}</Text>
-              <Text style={styles.zombieScore}>Skor: {z.score}</Text>
+          <View key={z.subscriptionId} style={styles.zombieCard}>
+            <Pressable
+              onPress={() => router.push({ pathname: '/subscription/[id]', params: { id: z.subscriptionId } })}
+            >
+              <View style={styles.zombieHeader}>
+                <Text style={styles.zombieName}>{z.name}</Text>
+                <View style={styles.scoreBadge}>
+                  <Text style={styles.zombieScore}>Risk: %{z.score}</Text>
+                </View>
+              </View>
+              {z.reasons.map((reason, i) => (
+                <Text key={i} style={styles.zombieReason}>
+                  • {reason}
+                </Text>
+              ))}
+            </Pressable>
+
+            <View style={styles.zombieActions}>
+              <Pressable
+                style={[styles.zombieActionButton, styles.usedButton]}
+                onPress={() => markUsedMutation.mutate(z.subscriptionId)}
+                disabled={markUsedMutation.isPending}
+              >
+                <Text style={styles.usedButtonText}>✓ Kullandım</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.zombieActionButton, styles.pauseButton]}
+                onPress={() => pauseMutation.mutate(z.subscriptionId)}
+                disabled={pauseMutation.isPending}
+              >
+                <Text style={styles.actionButtonText}>⏸️ Duraklat</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.zombieActionButton, styles.cancelButton]}
+                onPress={() => cancelMutation.mutate(z.subscriptionId)}
+                disabled={cancelMutation.isPending}
+              >
+                <Text style={styles.cancelButtonText}>✕ İptal</Text>
+              </Pressable>
             </View>
-            {z.reasons.map((reason, i) => (
-              <Text key={i} style={styles.zombieReason}>
-                • {reason}
-              </Text>
-            ))}
-          </Pressable>
+          </View>
         ))
       ) : (
         <View style={styles.emptyCard}>
-          <Text style={styles.emptyText}>Şu an işaretlenmiş zombi abonelik yok.</Text>
+          <Text style={styles.emptyText}>✨ Harika! Şu an zombi olarak işaretlenmiş bir aboneliğin yok.</Text>
         </View>
       )}
     </ScrollView>
@@ -167,16 +223,42 @@ const styles = StyleSheet.create({
   renewalMeta: { color: colors.textMuted, fontSize: 13, marginTop: 4 },
   zombieCard: {
     backgroundColor: colors.surface,
-    borderRadius: 14,
+    borderRadius: 16,
     padding: 16,
-    marginBottom: 10,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: colors.warning + '55',
+    borderColor: 'rgba(239, 68, 68, 0.3)',
   },
   zombieHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 },
   zombieName: { color: colors.text, fontWeight: '700', fontSize: 15, flex: 1 },
-  zombieScore: { color: colors.warning, fontWeight: '700', fontSize: 14 },
+  scoreBadge: { backgroundColor: 'rgba(239, 68, 68, 0.15)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  zombieScore: { color: colors.danger, fontWeight: '700', fontSize: 12 },
   zombieReason: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
+
+  // Zombie Actions
+  zombieActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  zombieActionButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  usedButton: { backgroundColor: 'rgba(34, 197, 94, 0.15)', borderWidth: 1, borderColor: '#22c55e' },
+  usedButtonText: { color: '#22c55e', fontSize: 12, fontWeight: '700' },
+  pauseButton: { backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
+  actionButtonText: { color: colors.text, fontSize: 12, fontWeight: '600' },
+  cancelButton: { backgroundColor: 'rgba(239, 68, 68, 0.15)', borderWidth: 1, borderColor: colors.danger },
+  cancelButtonText: { color: colors.danger, fontSize: 12, fontWeight: '700' },
+
   emptyCard: { backgroundColor: colors.surface, borderRadius: 14, padding: 20, alignItems: 'center' },
   emptyText: { color: colors.textMuted, fontSize: 14, textAlign: 'center' },
 });
