@@ -14,6 +14,13 @@ import { useAuth } from '../../src/context/AuthContext';
 import { usersApi } from '../../src/api/users';
 import { ApiError } from '../../src/api/client';
 import { colors } from '../../src/theme';
+import { registerForPushNotificationsAsync } from '../../src/utils/notifications';
+
+const RENEWAL_DAY_OPTIONS = [
+  { days: 7, label: '7 Gün Önce' },
+  { days: 3, label: '3 Gün Önce' },
+  { days: 1, label: '1 Gün Önce' },
+];
 
 export default function ProfileScreen() {
   const { user, logout, refreshUser } = useAuth();
@@ -21,9 +28,11 @@ export default function ProfileScreen() {
   const [baseCurrency, setBaseCurrency] = useState(user?.baseCurrency ?? 'USD');
   const [saving, setSaving] = useState(false);
   const [prefsSaving, setPrefsSaving] = useState(false);
+  const [pushRegistering, setPushRegistering] = useState(false);
 
   const zombieAlerts = user?.notificationPreference?.zombieAlertsEnabled ?? true;
   const emailEnabled = user?.notificationPreference?.channels?.includes('email') ?? false;
+  const currentDays = user?.notificationPreference?.daysBeforeRenewal ?? [3, 1];
 
   function handleLogout() {
     Alert.alert('Çıkış yap', 'Oturumu kapatmak istediğine emin misin?', [
@@ -80,6 +89,47 @@ export default function ProfileScreen() {
     }
   }
 
+  async function toggleRenewalDay(day: number) {
+    setPrefsSaving(true);
+    try {
+      let updatedDays = [...currentDays];
+      if (updatedDays.includes(day)) {
+        if (updatedDays.length === 1) {
+          Alert.alert('Uyarı', 'En az bir hatırlatma günü seçili olmalıdır.');
+          setPrefsSaving(false);
+          return;
+        }
+        updatedDays = updatedDays.filter((d) => d !== day);
+      } else {
+        updatedDays.push(day);
+      }
+      updatedDays.sort((a, b) => b - a);
+      await usersApi.updateNotificationPreferences({ daysBeforeRenewal: updatedDays });
+      await refreshUser();
+    } catch (err) {
+      Alert.alert('Hata', err instanceof ApiError ? err.message : 'Tercih kaydedilemedi.');
+    } finally {
+      setPrefsSaving(false);
+    }
+  }
+
+  async function handleEnablePushNotifications() {
+    setPushRegistering(true);
+    try {
+      const token = await registerForPushNotificationsAsync();
+      if (token) {
+        await refreshUser();
+        Alert.alert('Başarılı 🔔', 'Push bildirimleri başarıyla aktif edildi!');
+      } else {
+        Alert.alert('Bilgi', 'Cihazınızda bildirim izni verilmedi veya desteklenmiyor.');
+      }
+    } catch (err) {
+      Alert.alert('Hata', 'Bildirim izni alınırken hata oluştu.');
+    } finally {
+      setPushRegistering(false);
+    }
+  }
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.avatar}>
@@ -120,7 +170,46 @@ export default function ProfileScreen() {
         {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>Profili Kaydet</Text>}
       </Pressable>
 
-      <Text style={styles.sectionTitle}>Bildirimler</Text>
+      {/* Notifications Section */}
+      <Text style={styles.sectionTitle}>🔔 Bildirim & Hatırlatıcı Ayarları</Text>
+
+      <Pressable
+        style={styles.pushEnableButton}
+        onPress={handleEnablePushNotifications}
+        disabled={pushRegistering}
+      >
+        {pushRegistering ? (
+          <ActivityIndicator color={colors.primary} size="small" />
+        ) : (
+          <Text style={styles.pushEnableText}>
+            📲 Cihaz Push Bildirimlerini Etkinleştir
+          </Text>
+        )}
+      </Pressable>
+
+      {/* Renewal Days Selection */}
+      <View style={styles.prefSection}>
+        <Text style={styles.prefTitle}>Hatırlatma Günleri</Text>
+        <Text style={styles.prefHint}>Yenileme tarihinden kaç gün önce bildirim gönderilsin?</Text>
+        <View style={styles.daysContainer}>
+          {RENEWAL_DAY_OPTIONS.map((option) => {
+            const isSelected = currentDays.includes(option.days);
+            return (
+              <Pressable
+                key={option.days}
+                style={[styles.dayChip, isSelected && styles.dayChipActive]}
+                onPress={() => toggleRenewalDay(option.days)}
+                disabled={prefsSaving}
+              >
+                <Text style={[styles.dayChipText, isSelected && styles.dayChipTextActive]}>
+                  {isSelected ? '✓ ' : ''}{option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
       <View style={styles.prefRow}>
         <View style={styles.prefCopy}>
           <Text style={styles.prefTitle}>Zombi abonelik uyarıları</Text>
@@ -133,6 +222,7 @@ export default function ProfileScreen() {
           trackColor={{ true: colors.primaryDark }}
         />
       </View>
+
       <View style={styles.prefRow}>
         <View style={styles.prefCopy}>
           <Text style={styles.prefTitle}>E-posta hatırlatıcıları</Text>
@@ -199,18 +289,30 @@ const styles = StyleSheet.create({
   },
   pressed: { opacity: 0.85 },
   saveText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+
   sectionTitle: {
     alignSelf: 'stretch',
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
     marginTop: 32,
-    marginBottom: 8,
+    marginBottom: 12,
     textTransform: 'uppercase',
   },
-  prefRow: {
-    flexDirection: 'row',
+
+  pushEnableButton: {
+    alignSelf: 'stretch',
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 12,
     alignItems: 'center',
+    marginBottom: 16,
+  },
+  pushEnableText: { color: colors.primary, fontSize: 14, fontWeight: '600' },
+
+  prefSection: {
     width: '100%',
     paddingVertical: 12,
     borderBottomWidth: 1,
@@ -219,6 +321,29 @@ const styles = StyleSheet.create({
   prefCopy: { flex: 1, marginRight: 12 },
   prefTitle: { color: colors.text, fontSize: 15, fontWeight: '600' },
   prefHint: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+
+  daysContainer: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  dayChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  dayChipActive: { backgroundColor: colors.primaryDark, borderColor: colors.primaryDark },
+  dayChipText: { color: colors.textMuted, fontSize: 12, fontWeight: '600' },
+  dayChipTextActive: { color: '#fff' },
+
+  prefRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+
   logoutButton: {
     marginTop: 36,
     backgroundColor: colors.danger + '18',

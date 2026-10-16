@@ -2,7 +2,7 @@ import { apiRequest } from './client';
 import type { NotificationPreference, User } from '../types/api';
 
 export const usersApi = {
-  updateMe: (input: { fullName?: string; baseCurrency?: string; timezone?: string }) =>
+  updateMe: (input: { fullName?: string; baseCurrency?: string; timezone?: string; pushToken?: string }) =>
     apiRequest<User>('/users/me', { method: 'PATCH', body: input }),
 
   updateNotificationPreferences: (input: {
