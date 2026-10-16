@@ -11,6 +11,7 @@ import { CategoriesModule } from './modules/categories/categories.module';
 import { SharedAccountsModule } from './modules/shared-accounts/shared-accounts.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { ServiceProvidersModule } from './modules/service-providers/service-providers.module';
 import { ReminderQueueModule } from './queues/reminder.module';
 
 @Module({
@@ -33,6 +34,7 @@ import { ReminderQueueModule } from './queues/reminder.module';
     SharedAccountsModule,
     NotificationsModule,
     AnalyticsModule,
+    ServiceProvidersModule,
     ReminderQueueModule,
   ],
 })
