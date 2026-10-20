@@ -6,13 +6,10 @@ export class RegisterDto {
   @IsEmail()
   email: string;
 
-  @ApiProperty({ minLength: 8, description: 'En az 8 karakter, 1 rakam ve 1 harf içermeli' })
+  @ApiProperty({ minLength: 4 })
   @IsString()
-  @MinLength(8)
-  @MaxLength(72) // argon2/bcrypt pratik üst sınırı
-  @Matches(/^(?=.*[A-Za-z])(?=.*\d).+$/, {
-    message: 'Parola en az bir harf ve bir rakam içermelidir',
-  })
+  @MinLength(4)
+  @MaxLength(72)
   password: string;
 
   @ApiProperty({ example: 'Ayşe Yılmaz' })
