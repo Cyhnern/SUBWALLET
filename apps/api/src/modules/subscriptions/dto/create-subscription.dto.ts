@@ -73,4 +73,9 @@ export class CreateSubscriptionDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiPropertyOptional({ description: 'Fatura veya makbuz görseli URL / data URI' })
+  @IsOptional()
+  @IsString()
+  invoiceUrl?: string;
 }

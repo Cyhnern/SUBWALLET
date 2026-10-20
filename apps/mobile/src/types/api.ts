@@ -50,6 +50,7 @@ export interface Subscription {
   nextBillingDate: string;
   trialEndDate: string | null;
   lastUsedAt: string | null;
+  invoiceUrl?: string | null;
   notes: string | null;
   serviceProvider?: ServiceProvider | null;
   category?: Category | null;

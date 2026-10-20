@@ -9,6 +9,7 @@ export interface CreateSubscriptionInput {
   startDate: string;
   categoryId?: string;
   notes?: string;
+  invoiceUrl?: string;
 }
 
 export interface UpdateSubscriptionInput {
@@ -18,6 +19,7 @@ export interface UpdateSubscriptionInput {
   billingCycle?: Subscription['billingCycle'];
   categoryId?: string | null;
   notes?: string;
+  invoiceUrl?: string | null;
 }
 
 export const subscriptionsApi = {

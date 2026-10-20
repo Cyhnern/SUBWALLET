@@ -56,6 +56,7 @@ export default function AddSubscriptionScreen() {
   const [categoryId, setCategoryId] = useState<string | undefined>();
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
+  const [invoiceUrl, setInvoiceUrl] = useState('');
 
   const categories = useQuery({ queryKey: ['categories'], queryFn: categoriesApi.list });
   const serviceProviders = useQuery({ queryKey: ['service-providers'], queryFn: serviceProvidersApi.list });
@@ -102,6 +103,7 @@ export default function AddSubscriptionScreen() {
       startDate: todayIso(),
       categoryId,
       notes: notes.trim() || undefined,
+      invoiceUrl: invoiceUrl.trim() || undefined,
     });
   }
 
@@ -195,6 +197,17 @@ export default function AddSubscriptionScreen() {
         placeholder="Aile planı, 4 kişi..."
         placeholderTextColor={colors.textMuted}
         multiline
+      />
+
+      <Text style={styles.label}>Fatura / Makbuz Bağlantısı (isteğe bağlı)</Text>
+      <TextInput
+        style={styles.input}
+        value={invoiceUrl}
+        onChangeText={setInvoiceUrl}
+        placeholder="https://örnek.com/fatura.pdf veya https://.../fatura.png"
+        placeholderTextColor={colors.textMuted}
+        autoCapitalize="none"
+        keyboardType="url"
       />
 
       <Pressable

@@ -196,6 +196,7 @@ model Subscription {
   trialEndDate       DateTime?           @map("trial_end_date") @db.Date
   cancelledAt        DateTime?           @map("cancelled_at")
   lastUsedAt         DateTime?           @map("last_used_at")
+  invoiceUrl         String?             @map("invoice_url")
   notes              String?
   createdAt          DateTime            @default(now()) @map("created_at")
   updatedAt          DateTime            @updatedAt @map("updated_at")
