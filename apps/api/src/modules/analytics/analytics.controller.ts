@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { AnalyticsService } from './analytics.service';
 import { ZombieDetectorService } from './zombie-detector.service';
+import { ExchangeRatesService } from './exchange-rates.service';
 
 @ApiTags('analytics')
 @ApiBearerAuth()
@@ -13,6 +14,7 @@ export class AnalyticsController {
   constructor(
     private readonly analytics: AnalyticsService,
     private readonly zombieDetector: ZombieDetectorService,
+    private readonly exchangeRates: ExchangeRatesService,
   ) {}
 
   @Get('burn-rate')
@@ -36,5 +38,10 @@ export class AnalyticsController {
   @Get('zombie-subscriptions')
   zombieSubscriptions(@CurrentUser() user: AuthenticatedUser) {
     return this.zombieDetector.scanForUser(user.id);
+  }
+
+  @Get('exchange-rates')
+  exchangeRatesMap(@Query('base') baseCurrency?: string) {
+    return this.exchangeRates.getRatesMap(baseCurrency || 'TRY');
   }
 }

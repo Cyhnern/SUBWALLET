@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { startOfUtcDay, utcHorizonEnd } from '../../common/date.util';
 import { normalizeToMonthly } from '../subscriptions/billing-cycle.util';
+import { ExchangeRatesService } from './exchange-rates.service';
 
 export interface BurnRateResult {
   monthlyTotal: number;
@@ -12,24 +13,23 @@ export interface BurnRateResult {
 
 @Injectable()
 export class AnalyticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly exchangeRates: ExchangeRatesService,
+  ) {}
 
   /**
-   * Kullanıcının erişebildiği tüm aktif abonelikleri (kişisel + ortak hesap payları)
-   * kullanıcının base_currency'sine normalize ederek aylık/yıllık toplam harcamayı hesaplar.
-   *
-   * Not: Üretimde `exchange_rates` tablosundan güncel kur çekilir; bu iskelette
-   * basitlik için 1:1 varsayılır — TODO: gerçek kur servisiyle değiştirilecek.
+   * Kullanıcının tüm aktif aboneliklerini (kişisel + ortak hesap payları)
+   * kullanıcının baseCurrency'sine anlık kurlar üzerinden çevirerek harcamayı hesaplar.
    */
   async calculateBurnRate(userId: string): Promise<BurnRateResult> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const targetCurrency = user.baseCurrency || 'TRY';
 
     const personalSubs = await this.prisma.subscription.findMany({
       where: { userId, status: 'active', deletedAt: null, sharedAccountId: null },
     });
 
-    // Ortak hesaplardaki abonelikler için kullanıcının kendi payı (cost_splits) esas alınır,
-    // aboneliğin tam fiyatı değil — aksi halde kullanıcı arkadaşının payını da "harcaması" gibi görünür.
     const sharedSplits = await this.prisma.costSplit.findMany({
       where: { userId, subscription: { status: 'active', deletedAt: null } },
       include: { subscription: true },
@@ -39,25 +39,36 @@ export class AnalyticsService {
 
     let monthlyTotal = 0;
     for (const sub of personalSubs) {
-      monthlyTotal += normalizeToMonthly(Number(sub.price), sub.billingCycle, sub.customCycleDays);
+      const monthlyInSubCurrency = normalizeToMonthly(Number(sub.price), sub.billingCycle, sub.customCycleDays);
+      const convertedMonthly = this.exchangeRates.convert(monthlyInSubCurrency, sub.currency, targetCurrency);
+      monthlyTotal += convertedMonthly;
     }
     for (const split of sharedSplits) {
-      monthlyTotal += normalizeToMonthly(
+      const monthlyInSubCurrency = normalizeToMonthly(
         Number(split.computedAmount),
         split.subscription.billingCycle,
         split.subscription.customCycleDays,
       );
+      const convertedMonthly = this.exchangeRates.convert(
+        monthlyInSubCurrency,
+        split.subscription.currency,
+        targetCurrency,
+      );
+      monthlyTotal += convertedMonthly;
     }
 
     return {
       monthlyTotal: Math.round(monthlyTotal * 100) / 100,
       yearlyTotal: Math.round(monthlyTotal * 12 * 100) / 100,
-      currency: user.baseCurrency,
+      currency: targetCurrency,
       subscriptionCount: personalSubs.length + sharedSplits.length,
     };
   }
 
   async spendingByCategory(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const targetCurrency = user.baseCurrency || 'TRY';
+
     const subs = await this.prisma.subscription.findMany({
       where: { userId, status: 'active', deletedAt: null },
       include: { category: true },
@@ -70,7 +81,8 @@ export class AnalyticsService {
     for (const sub of subs) {
       const key = sub.categoryId ?? 'uncategorized';
       const name = sub.category?.name ?? 'Kategorisiz';
-      const monthly = normalizeToMonthly(Number(sub.price), sub.billingCycle, sub.customCycleDays);
+      const monthlyInSubCurrency = normalizeToMonthly(Number(sub.price), sub.billingCycle, sub.customCycleDays);
+      const monthly = this.exchangeRates.convert(monthlyInSubCurrency, sub.currency, targetCurrency);
 
       const existing = grouped.get(key);
       if (existing) {

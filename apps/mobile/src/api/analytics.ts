@@ -7,4 +7,6 @@ export const analyticsApi = {
   spendingByCategory: () => apiRequest<CategorySpend[]>('/analytics/spending-by-category'),
   upcomingRenewals: (days = 14) =>
     apiRequest<Subscription[]>(`/analytics/upcoming-renewals?days=${days}`),
+  exchangeRates: (baseCurrency = 'TRY') =>
+    apiRequest<Record<string, number>>(`/analytics/exchange-rates?base=${baseCurrency}`),
 };

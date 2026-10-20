@@ -13,6 +13,11 @@ export default function DashboardScreen() {
   const zombies = useQuery({ queryKey: ['zombie-subscriptions'], queryFn: analyticsApi.zombieSubscriptions });
   const spending = useQuery({ queryKey: ['spending-by-category'], queryFn: analyticsApi.spendingByCategory });
   const renewals = useQuery({ queryKey: ['upcoming-renewals'], queryFn: () => analyticsApi.upcomingRenewals(14) });
+  const exchangeRates = useQuery({
+    queryKey: ['exchange-rates', burnRate.data?.currency],
+    queryFn: () => analyticsApi.exchangeRates(burnRate.data?.currency ?? 'TRY'),
+    enabled: !!burnRate.data?.currency,
+  });
 
   const loading = burnRate.isLoading || zombies.isLoading || spending.isLoading || renewals.isLoading;
   const refreshing = burnRate.isRefetching || zombies.isRefetching || spending.isRefetching || renewals.isRefetching;
@@ -49,6 +54,7 @@ export default function DashboardScreen() {
     zombies.refetch();
     spending.refetch();
     renewals.refetch();
+    exchangeRates.refetch();
   }
 
   if (loading) {
@@ -77,6 +83,12 @@ export default function DashboardScreen() {
           Yıllık projeksiyon: {formatMoney(burnRate.data?.yearlyTotal ?? 0, burnRate.data?.currency ?? '')}
         </Text>
         <Text style={styles.burnRateCount}>{burnRate.data?.subscriptionCount ?? 0} aktif abonelik</Text>
+
+        <View style={styles.currencyNote}>
+          <Text style={styles.currencyNoteText}>
+            💱 Tüm dövizli harcamalar anlık kurla {burnRate.data?.currency ?? 'TRY'} cinsine çevrilmiştir.
+          </Text>
+        </View>
       </View>
 
       <Text style={styles.sectionTitle}>Kategori Dağılımı</Text>
@@ -205,6 +217,14 @@ const styles = StyleSheet.create({
   burnRateUnit: { fontSize: 16, fontWeight: '400', color: colors.textMuted },
   burnRateYearly: { fontSize: 13, color: colors.textMuted, marginTop: 6 },
   burnRateCount: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+  currencyNote: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  currencyNoteText: { color: colors.primary, fontSize: 11, fontWeight: '600' },
+
   categoryRow: { marginBottom: 12 },
   categoryHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
   categoryName: { color: colors.text, fontSize: 14, fontWeight: '600', flex: 1, marginRight: 8 },
