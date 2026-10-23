@@ -15,6 +15,16 @@ import { useAuth } from '../../src/context/AuthContext';
 import { ApiError } from '../../src/api/client';
 import { colors } from '../../src/theme';
 
+function showAlert(title: string, message: string) {
+  if (Platform.OS === 'web') {
+    if (typeof window !== 'undefined') {
+      window.alert(`${title}: ${message}`);
+    }
+  } else {
+    Alert.alert(title, message);
+  }
+}
+
 export default function LoginScreen() {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
@@ -23,16 +33,16 @@ export default function LoginScreen() {
 
   async function handleLogin() {
     if (!email || !password) {
-      Alert.alert('Eksik bilgi', 'E-posta ve parola gerekli.');
+      showAlert('Eksik bilgi', 'E-posta ve parola gerekli.');
       return;
     }
     setIsSubmitting(true);
     try {
       await login(email.trim(), password);
-      router.replace('/(tabs)');
+      router.replace('/');
     } catch (err) {
       const message = err instanceof ApiError ? err.message : 'Bağlantı hatası. API çalışıyor mu?';
-      Alert.alert('Giriş yapılamadı', message);
+      showAlert('Giriş yapılamadı', message);
     } finally {
       setIsSubmitting(false);
     }
