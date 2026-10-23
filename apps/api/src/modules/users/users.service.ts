@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
@@ -40,7 +40,6 @@ export class UsersService {
     });
   }
 
-  /** Tercihler ilk girişte otomatik oluşturulmaz — burada upsert ile tembel (lazy) oluşturuluyor. */
   async updateNotificationPreferences(userId: string, dto: UpdateNotificationPreferencesDto) {
     return this.prisma.notificationPreference.upsert({
       where: { userId },
@@ -60,11 +59,48 @@ export class UsersService {
     });
   }
 
-  /** Hesabı soft-delete yapar; ilişkili veriler kaskad değil, denetim için korunur. */
+  /**
+   * Hesabı KVKK (Unutulma Hakkı / Data Minimization) prensiplerine uygun olarak siler:
+   * 1. Kişisel tanımlanabilir verileri (PII: e-posta, ad soyad, avatar, pushToken, OAuth) anonimleştirir.
+   * 2. Parola ve hassas refresh token oturumlarını tamamen temizler.
+   * 3. Kişisel aktif abonelikleri iptal edip soft-delete yapar.
+   * 4. Ortak hesap üyeliklerinden (hesap sahibi hariç) çıkarır.
+   */
   async deactivateAccount(userId: string) {
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: { isActive: false, deletedAt: new Date() },
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Kullanıcı bulunamadı');
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Refresh token'ları sil (oturumları kapat)
+      await tx.refreshToken.deleteMany({ where: { userId } });
+
+      // 2. Kişisel abonelikleri iptal et
+      await tx.subscription.updateMany({
+        where: { userId, sharedAccountId: null },
+        data: { status: 'cancelled', deletedAt: new Date() },
+      });
+
+      // 3. Ortak hesap üyeliklerini temizle (sahibi olmadığı gruplar)
+      await tx.sharedAccountMember.deleteMany({
+        where: { userId, role: { not: 'owner' } },
+      });
+
+      // 4. KVKK Anonimleştirme: PII verileri temizle
+      const anonymizedEmail = `deleted_user_${userId.slice(0, 8)}@deleted.subwallet.app`;
+      return tx.user.update({
+        where: { id: userId },
+        data: {
+          fullName: 'Silinmiş Kullanıcı (KVKK)',
+          email: anonymizedEmail,
+          passwordHash: null,
+          avatarUrl: null,
+          pushToken: null,
+          oauthProvider: null,
+          oauthProviderId: null,
+          isActive: false,
+          deletedAt: new Date(),
+        },
+      });
     });
   }
 }

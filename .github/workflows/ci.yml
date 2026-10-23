@@ -1,0 +1,66 @@
+name: SubWallet CI Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: subwallet
+          POSTGRES_PASSWORD: subwallet_dev_password
+          POSTGRES_DB: subwallet
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Push Prisma Schema
+        env:
+          DATABASE_URL: "postgresql://subwallet:subwallet_dev_password@localhost:5433/subwallet?schema=public"
+        run: npx prisma db push --schema=apps/api/prisma/schema.prisma
+
+      - name: Typecheck Mobile App
+        run: npx tsc --noEmit -p apps/mobile/tsconfig.json
+
+      - name: Build NestJS API
+        run: npm --workspace apps/api run build
+
+      - name: Run Jest Unit Tests
+        env:
+          DATABASE_URL: "postgresql://subwallet:subwallet_dev_password@localhost:5433/subwallet?schema=public"
+          JWT_ACCESS_SECRET: "ci_jwt_secret_test_key_2026"
+        run: npm --workspace apps/api run test
