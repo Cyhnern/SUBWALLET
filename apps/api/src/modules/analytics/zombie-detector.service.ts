@@ -34,13 +34,16 @@ export class ZombieDetectorService {
     let score = 0;
     const reasons: string[] = [];
 
-    // Sinyal 1 (%40): uzun süredir kullanılmadı ya da hiç işaretlenmedi
-    const daysSinceUse = sub.lastUsedAt
-      ? differenceInCalendarDays(new Date(), sub.lastUsedAt)
-      : Infinity;
-    if (daysSinceUse >= INACTIVITY_DAYS) {
+    // Sinyal 1 (%40): uzun süredir kullanılmadı ya da hiç işaretlenmedi (Infinity kullanılmaz)
+    if (!sub.lastUsedAt) {
       score += 40;
-      reasons.push(`${INACTIVITY_DAYS}+ gündür kullanılmadı`);
+      reasons.push('Henüz hiç kullanılmadı veya işaretlenmedi');
+    } else {
+      const daysSinceUse = differenceInCalendarDays(new Date(), sub.lastUsedAt);
+      if (daysSinceUse >= INACTIVITY_DAYS) {
+        score += 40;
+        reasons.push(`${INACTIVITY_DAYS}+ gündür kullanılmadı`);
+      }
     }
 
     // Sinyal 2 (%25): son 90 günde fiyat %20+ arttı
@@ -103,7 +106,6 @@ export class ZombieDetectorService {
     return Math.round(((newest - oldest) / oldest) * 100);
   }
 
-  /** Kullanıcının tüm aktif aboneliklerini tarar, zombi olanları döner. */
   async scanForUser(userId: string): Promise<ZombieScore[]> {
     const subs = await this.prisma.subscription.findMany({
       where: { userId, status: 'active', deletedAt: null },
@@ -114,10 +116,6 @@ export class ZombieDetectorService {
     return scores.filter((s) => s.isZombie);
   }
 
-  /**
-   * Haftalık BullMQ cron job'u tarafından çağrılır: tüm sistemdeki aktif
-   * abonelikleri tarar ve zombi tespit edilenler için bildirim tetikler.
-   */
   async scanAllAndNotify(): Promise<{ scanned: number; flagged: number }> {
     const activeSubs = await this.prisma.subscription.findMany({
       where: { status: 'active', deletedAt: null },

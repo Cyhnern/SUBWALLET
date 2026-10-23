@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateSharedAccountDto } from './dto/create-shared-account.dto';
 import { InviteMemberDto } from './dto/invite-member.dto';
@@ -52,7 +53,6 @@ export class SharedAccountsService {
       where: { email: dto.email, deletedAt: null },
     });
     if (!targetUser) {
-      // Kayıtlı olmayan bir e-postaya davet gönderme (magic link) akışı ileri fazda eklenecek.
       throw new NotFoundException(
         'Bu e-postayla kayıtlı bir kullanıcı bulunamadı. Davet e-postası gönderimi yakında eklenecek.',
       );
@@ -93,7 +93,7 @@ export class SharedAccountsService {
   /**
    * Bir ortak hesaba bağlı tüm aktif aboneliklerin, belirli bir fatura dönemi
    * için üyeler arasında nasıl bölüşüldüğünü hesaplar ve `cost_splits`
-   * tablosuna yazar (idempotent — aynı dönem için tekrar çağrılırsa üzerine yazar).
+   * tablosuna yazar (idempotent — ödenmiş/settled kayıtlar dondurulur).
    */
   async recomputeCostSplits(sharedAccountId: string, billingPeriodStart: Date) {
     const account = await this.findOneOrFail(sharedAccountId);
@@ -109,6 +109,22 @@ export class SharedAccountsService {
       const splits = this.computeSplitsForSubscription(Number(sub.price), memberIds);
 
       for (const split of splits) {
+        // Settled (ödenmiş) kayıtlar dondurulur — dondurulmuş kayıtların üzerine yazılamaz
+        const existing = await this.prisma.costSplit.findUnique({
+          where: {
+            subscriptionId_userId_billingPeriodStart: {
+              subscriptionId: sub.id,
+              userId: split.userId,
+              billingPeriodStart,
+            },
+          },
+        });
+
+        if (existing?.isSettled) {
+          results.push(existing);
+          continue;
+        }
+
         const record = await this.prisma.costSplit.upsert({
           where: {
             subscriptionId_userId_billingPeriodStart: {
@@ -121,11 +137,11 @@ export class SharedAccountsService {
             subscriptionId: sub.id,
             userId: split.userId,
             splitType: 'equal',
-            computedAmount: split.amount,
+            computedAmount: new Prisma.Decimal(split.amount),
             billingPeriodStart,
           },
           update: {
-            computedAmount: split.amount,
+            computedAmount: new Prisma.Decimal(split.amount),
           },
         });
         results.push(record);
@@ -135,17 +151,11 @@ export class SharedAccountsService {
     return results;
   }
 
-  /**
-   * Tek bir abonelik için üyeler arası eşit bölüşüm hesaplar.
-   * `percentage`/`fixed_amount` tipleri ileride subscription bazlı bir
-   * split-config tablosuyla genişletilebilir; şu an eşit bölüşüm varsayılan davranıştır.
-   */
   private computeSplitsForSubscription(
     price: number,
     memberIds: string[],
   ): { userId: string; amount: number }[] {
     const perMember = Math.round((price / memberIds.length) * 100) / 100;
-    // Yuvarlama farkını son üyeye yansıtarak toplamın tam tutarı tutturmasını sağlıyoruz.
     const totalRounded = perMember * (memberIds.length - 1);
     const lastMemberAmount = Math.round((price - totalRounded) * 100) / 100;
 
@@ -173,8 +183,6 @@ export class SharedAccountsService {
     const split = await this.prisma.costSplit.findUnique({ where: { id: splitId } });
     if (!split) throw new NotFoundException('Ödeme kaydı bulunamadı');
 
-    // Yalnızca borçlu kişi kendi payını "ödendi" işaretleyebilir — ileri fazda
-    // hesap sahibinin de onaylayabildiği bir çift taraflı akışa genişletilebilir.
     if (split.userId !== requestingUserId) {
       throw new BadRequestException('Yalnızca kendi payınızı ödendi olarak işaretleyebilirsiniz');
     }

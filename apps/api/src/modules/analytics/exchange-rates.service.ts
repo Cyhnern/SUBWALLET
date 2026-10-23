@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 
-// Default exchange rates relative to USD
-const USD_RATES: Record<string, number> = {
+export const SUPPORTED_CURRENCIES = new Set(['TRY', 'USD', 'EUR', 'GBP']);
+
+// Fallback exchange rates relative to USD
+const FALLBACK_USD_RATES: Record<string, number> = {
   USD: 1.0,
   TRY: 34.25,
   EUR: 0.915,
@@ -11,20 +13,56 @@ const USD_RATES: Record<string, number> = {
 @Injectable()
 export class ExchangeRatesService {
   private readonly logger = new Logger(ExchangeRatesService.name);
+  private ratesCache: Record<string, number> = { ...FALLBACK_USD_RATES };
+  private lastFetchTime = 0;
+  private readonly CACHE_TTL_MS = 60 * 60 * 1000; // 1 saat önbellek
 
-  /**
-   * Convert an amount from one currency to another using exchange rates
-   */
+  private validateCurrency(currency: string): string {
+    const curr = (currency || '').toUpperCase().trim();
+    if (!curr || !SUPPORTED_CURRENCIES.has(curr)) {
+      throw new BadRequestException(
+        `Desteklenmeyen veya geçersiz para birimi: '${currency}'. Desteklenenler: ${Array.from(
+          SUPPORTED_CURRENCIES,
+        ).join(', ')}`,
+      );
+    }
+    return curr;
+  }
+
+  private async refreshRatesIfStale(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastFetchTime < this.CACHE_TTL_MS) return;
+
+    try {
+      const response = await fetch('https://open.er-api.com/v6/latest/USD');
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.rates) {
+          this.ratesCache = {
+            USD: 1.0,
+            TRY: data.rates.TRY ?? FALLBACK_USD_RATES.TRY,
+            EUR: data.rates.EUR ?? FALLBACK_USD_RATES.EUR,
+            GBP: data.rates.GBP ?? FALLBACK_USD_RATES.GBP,
+          };
+          this.lastFetchTime = now;
+          this.logger.log('Döviz kurları güncellendi');
+          return;
+        }
+      }
+    } catch (error) {
+      this.logger.warn('Canlı döviz kuru çekilemedi, yedek kurlar kullanılıyor');
+    }
+  }
+
   convert(amount: number, fromCurrency: string, toCurrency: string): number {
-    const from = (fromCurrency || 'TRY').toUpperCase().trim();
-    const to = (toCurrency || 'TRY').toUpperCase().trim();
+    const from = this.validateCurrency(fromCurrency);
+    const to = this.validateCurrency(toCurrency);
 
     if (from === to) return amount;
 
-    const fromRateToUsd = USD_RATES[from] ?? (from === 'TRY' ? 34.25 : 1.0);
-    const toRateToUsd = USD_RATES[to] ?? (to === 'TRY' ? 34.25 : 1.0);
+    const fromRateToUsd = this.ratesCache[from] ?? FALLBACK_USD_RATES[from];
+    const toRateToUsd = this.ratesCache[to] ?? FALLBACK_USD_RATES[to];
 
-    // Convert 'from' amount to USD, then from USD to 'to' currency
     const amountInUsd = amount / fromRateToUsd;
     const convertedAmount = amountInUsd * toRateToUsd;
 
@@ -32,12 +70,12 @@ export class ExchangeRatesService {
   }
 
   getRatesMap(baseCurrency = 'TRY'): Record<string, number> {
-    const base = baseCurrency.toUpperCase().trim();
-    const baseRateToUsd = USD_RATES[base] ?? (base === 'TRY' ? 34.25 : 1.0);
+    const base = this.validateCurrency(baseCurrency);
+    const baseRateToUsd = this.ratesCache[base] ?? FALLBACK_USD_RATES[base];
 
     const rates: Record<string, number> = {};
-    for (const cur of Object.keys(USD_RATES)) {
-      const curRateToUsd = USD_RATES[cur];
+    for (const cur of Array.from(SUPPORTED_CURRENCIES)) {
+      const curRateToUsd = this.ratesCache[cur] ?? FALLBACK_USD_RATES[cur];
       rates[cur] = Math.round((curRateToUsd / baseRateToUsd) * 10000) / 10000;
     }
     return rates;

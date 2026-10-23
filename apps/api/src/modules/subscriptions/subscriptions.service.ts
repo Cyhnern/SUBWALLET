@@ -19,6 +19,10 @@ export class SubscriptionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(userId: string, dto: CreateSubscriptionDto) {
+    if (dto.invoiceUrl && !dto.invoiceUrl.toLowerCase().startsWith('https://')) {
+      throw new BadRequestException('invoiceUrl yalnızca güvenli https:// protokolünü destekler');
+    }
+
     const startDate = new Date(dto.startDate);
     const nextBillingDate = calculateNextBillingDate(
       startDate,
@@ -98,6 +102,21 @@ export class SubscriptionsService {
   async update(userId: string, id: string, dto: UpdateSubscriptionDto) {
     const existing = await this.findOneOrFail(userId, id);
 
+    if (dto.invoiceUrl && !dto.invoiceUrl.toLowerCase().startsWith('https://')) {
+      throw new BadRequestException('invoiceUrl yalnızca güvenli https:// protokolünü destekler');
+    }
+
+    if (existing.sharedAccountId) {
+      const membership = await this.prisma.sharedAccountMember.findUnique({
+        where: { sharedAccountId_userId: { sharedAccountId: existing.sharedAccountId, userId } },
+      });
+      if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
+        throw new ForbiddenException(
+          'Yalnızca grup yöneticileri veya hesap sahibi ortak abonelikte değişiklik yapabilir',
+        );
+      }
+    }
+
     const priceChanged = dto.price !== undefined && Number(existing.price) !== dto.price;
     const cycleChanged = dto.billingCycle && dto.billingCycle !== existing.billingCycle;
 
@@ -146,7 +165,18 @@ export class SubscriptionsService {
   }
 
   async softDelete(userId: string, id: string) {
-    await this.findOneOrFail(userId, id);
+    const existing = await this.findOneOrFail(userId, id);
+    if (existing.sharedAccountId) {
+      const membership = await this.prisma.sharedAccountMember.findUnique({
+        where: { sharedAccountId_userId: { sharedAccountId: existing.sharedAccountId, userId } },
+      });
+      if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
+        throw new ForbiddenException(
+          'Yalnızca grup yöneticileri veya hesap sahibi ortak aboneliği silebilir',
+        );
+      }
+    }
+
     return this.prisma.subscription.update({
       where: { id },
       data: { deletedAt: new Date() },
@@ -155,6 +185,17 @@ export class SubscriptionsService {
 
   async transitionStatus(userId: string, id: string, newStatus: SubscriptionStatus) {
     const sub = await this.findOneOrFail(userId, id);
+
+    if (sub.sharedAccountId) {
+      const membership = await this.prisma.sharedAccountMember.findUnique({
+        where: { sharedAccountId_userId: { sharedAccountId: sub.sharedAccountId, userId } },
+      });
+      if (!membership || (membership.role !== 'owner' && membership.role !== 'admin')) {
+        throw new ForbiddenException(
+          'Yalnızca grup yöneticileri veya hesap sahibi ortak aboneliğin durumunu değiştirebilir',
+        );
+      }
+    }
 
     if (!ALLOWED_TRANSITIONS[sub.status].includes(newStatus)) {
       throw new BadRequestException(
