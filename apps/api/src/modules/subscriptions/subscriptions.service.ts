@@ -6,13 +6,12 @@ import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { startOfUtcDay, utcHorizonEnd } from '../../common/date.util';
 import { calculateNextBillingDate } from './billing-cycle.util';
 
-// Modelde teknik olarak izin verilse de iş kuralı olarak izin verdiğimiz geçişler.
 const ALLOWED_TRANSITIONS: Record<SubscriptionStatus, SubscriptionStatus[]> = {
   trial: ['active', 'cancelled'],
   active: ['paused', 'cancelled', 'expired'],
   paused: ['active', 'cancelled'],
   cancelled: [],
-  expired: ['active'], // kullanıcı ödeme yöntemini günceller ve yeniden etkinleştirir
+  expired: ['active'],
 };
 
 @Injectable()
@@ -27,8 +26,6 @@ export class SubscriptionsService {
       dto.customCycleDays,
     );
 
-    // Ortak hesaba ekleniyorsa üyelik doğrulaması yapılmalı — Guard katmanında da kontrol edilir,
-    // burada ikinci bir savunma hattı (defense in depth) olarak tekrar doğrulanır.
     if (dto.sharedAccountId) {
       const membership = await this.prisma.sharedAccountMember.findUnique({
         where: { sharedAccountId_userId: { sharedAccountId: dto.sharedAccountId, userId } },
@@ -54,6 +51,15 @@ export class SubscriptionsService {
     userId: string,
     filters: { status?: SubscriptionStatus; categoryId?: string; sharedAccountId?: string },
   ) {
+    if (filters.sharedAccountId) {
+      const membership = await this.prisma.sharedAccountMember.findUnique({
+        where: { sharedAccountId_userId: { sharedAccountId: filters.sharedAccountId, userId } },
+      });
+      if (!membership) {
+        throw new ForbiddenException('Bu ortak hesaba erişim yetkiniz yok');
+      }
+    }
+
     return this.prisma.subscription.findMany({
       where: {
         deletedAt: null,
@@ -92,7 +98,6 @@ export class SubscriptionsService {
   async update(userId: string, id: string, dto: UpdateSubscriptionDto) {
     const existing = await this.findOneOrFail(userId, id);
 
-    // Fiyat veya döngü değişirse next_billing_date yeniden hesaplanır ve geçmişe düşülür.
     const priceChanged = dto.price !== undefined && Number(existing.price) !== dto.price;
     const cycleChanged = dto.billingCycle && dto.billingCycle !== existing.billingCycle;
 
@@ -148,7 +153,6 @@ export class SubscriptionsService {
     });
   }
 
-  /** Merkezi durum geçiş kapısı — tüm pause/resume/cancel akışları buradan geçer. */
   async transitionStatus(userId: string, id: string, newStatus: SubscriptionStatus) {
     const sub = await this.findOneOrFail(userId, id);
 
@@ -194,7 +198,6 @@ export class SubscriptionsService {
     });
   }
 
-  /** BullMQ zamanlayıcısının kullandığı sorgu — belirli gün aralığında yenilenecek aktif abonelikler. */
   async findRenewingWithin(days: number) {
     const start = startOfUtcDay();
     const horizon = utcHorizonEnd(days);

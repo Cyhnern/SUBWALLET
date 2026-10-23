@@ -25,6 +25,7 @@ import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-
 import { GoogleProfile } from './strategies/google.strategy';
 
 @ApiTags('auth')
+@Throttle({ default: { limit: 10, ttl: 60_000 } })
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -32,7 +33,6 @@ export class AuthController {
     private readonly config: ConfigService,
   ) {}
 
-  // Brute-force denemelerini yavaşlatmak için auth uç noktalarında sıkı rate limit.
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('register')
   register(@Body() dto: RegisterDto) {
@@ -46,18 +46,21 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
   refresh(@Body() dto: RefreshTokenDto) {
     return this.authService.refreshTokens(dto.refreshToken);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(HttpStatus.NO_CONTENT)
   @Post('logout')
   logout(@Body() dto: RefreshTokenDto) {
     return this.authService.logout(dto.refreshToken);
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @HttpCode(HttpStatus.NO_CONTENT)
@@ -67,12 +70,14 @@ export class AuthController {
   }
 
   // --- Google OAuth2 (web tabanlı yönlendirme akışı) ---
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Get('oauth/google')
   @UseGuards(AuthGuard('google'))
   googleLogin() {
     // Passport otomatik olarak Google'a yönlendirir; gövde boş kalır.
   }
 
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Get('oauth/google/callback')
   @UseGuards(AuthGuard('google'))
   async googleCallback(@Req() req: Request, @Res() res: Response) {
@@ -85,14 +90,14 @@ export class AuthController {
       avatarUrl: profile.avatarUrl,
     });
 
-    // Mobil derin bağlantı (deep link) ile Expo uygulamasına token'ları taşır.
     const redirectUrl = this.config.get<string>('MOBILE_OAUTH_REDIRECT_URL', 'subwallet://oauth');
     return res.redirect(
       `${redirectUrl}?accessToken=${tokens.accessToken}&refreshToken=${tokens.refreshToken}`,
     );
   }
 
-  // --- Apple Sign-In (mobil istemci identityToken'ı doğrudan gönderir) ---
+  // --- Apple Sign-In ---
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @Post('oauth/apple')
   async appleLogin(@Body() dto: AppleLoginDto) {

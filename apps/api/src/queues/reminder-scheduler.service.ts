@@ -4,6 +4,9 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { differenceInCalendarDays } from 'date-fns';
 import { SubscriptionsService } from '../modules/subscriptions/subscriptions.service';
+import { PrismaService } from '../common/prisma/prisma.service';
+import { calculateNextBillingDate } from '../modules/subscriptions/billing-cycle.util';
+import { startOfUtcDay } from '../common/date.util';
 
 export interface RenewalReminderJobData {
   subscriptionId: string;
@@ -11,7 +14,7 @@ export interface RenewalReminderJobData {
   daysUntil: number;
 }
 
-const REMINDER_HORIZON_DAYS = 7; // en uzak hatırlatıcı tercihinden büyük veya eşit olmalı
+const REMINDER_HORIZON_DAYS = 7;
 
 @Injectable()
 export class ReminderSchedulerService {
@@ -20,10 +23,9 @@ export class ReminderSchedulerService {
   constructor(
     @InjectQueue('reminders') private readonly queue: Queue<RenewalReminderJobData>,
     private readonly subscriptionsService: SubscriptionsService,
+    private readonly prisma: PrismaService,
   ) {}
 
-  // Her gün UTC 07:00'de çalışır. Zaman dilimi farkı olan kullanıcılar için
-  // ileri fazda kullanıcı bazlı zamanlama eklenebilir (şimdilik basit ve öngörülebilir).
   @Cron(CronExpression.EVERY_DAY_AT_7AM)
   async scheduleUpcomingReminders() {
     const candidates = await this.subscriptionsService.findRenewingWithin(REMINDER_HORIZON_DAYS);
@@ -37,14 +39,42 @@ export class ReminderSchedulerService {
 
       if (!preferredDays.includes(daysUntil)) continue;
 
-      // jobId ile idempotency: aynı abonelik + gün kombinasyonu için tekrar kuyruklanmaz.
+      const dateStr = new Date(sub.nextBillingDate).toISOString().slice(0, 10);
+      // jobId ile idempotency: abonelik ID + fatura tarihi + kalan gün sayısı
       await this.queue.add(
         'send-renewal-reminder',
         { subscriptionId: sub.id, userId: sub.userId, daysUntil },
-        { jobId: `reminder-${sub.id}-${daysUntil}` },
+        { jobId: `reminder-${sub.id}-${dateStr}-${daysUntil}` },
       );
       queued++;
     }
     this.logger.log(`${queued} hatırlatıcı iş kuyruğa eklendi`);
+  }
+
+  // Her gün gece yarısı 00:00'da çalışır: yenileme tarihi geçmiş aktif aboneliklerin nextBillingDate değerini ilerletir.
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async advanceOverdueBillingDates() {
+    const today = startOfUtcDay();
+    const overdueSubs = await this.prisma.subscription.findMany({
+      where: {
+        status: 'active',
+        deletedAt: null,
+        nextBillingDate: { lt: today },
+      },
+    });
+
+    let count = 0;
+    for (const sub of overdueSubs) {
+      let nextDate = new Date(sub.nextBillingDate);
+      while (nextDate < today) {
+        nextDate = calculateNextBillingDate(nextDate, sub.billingCycle, sub.customCycleDays);
+      }
+      await this.prisma.subscription.update({
+        where: { id: sub.id },
+        data: { nextBillingDate: nextDate },
+      });
+      count++;
+    }
+    this.logger.log(`${count} adet gecikmiş aboneliğin nextBillingDate değeri ilerletildi`);
   }
 }
