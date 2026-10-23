@@ -1,10 +1,11 @@
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, RefreshControl, Pressable, Alert } from 'react-native';
 import { router } from 'expo-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { analyticsApi } from '../../src/api/analytics';
 import { subscriptionsApi } from '../../src/api/subscriptions';
 import { colors } from '../../src/theme';
 import { formatDate, formatMoney, subscriptionName } from '../../src/utils/format';
+import { downloadOrShareCsv } from '../../src/utils/export';
 
 export default function DashboardScreen() {
   const queryClient = useQueryClient();
@@ -49,6 +50,17 @@ export default function DashboardScreen() {
     },
   });
 
+  const exportCsvMutation = useMutation({
+    mutationFn: analyticsApi.exportCsvReport,
+    onSuccess: (csvText) => {
+      downloadOrShareCsv(csvText, 'SubWallet_Harcama_Raporu.csv');
+      Alert.alert('Başarılı 📊', 'Bütçe ve harcama raporunuz indirildi!');
+    },
+    onError: () => {
+      Alert.alert('Hata', 'Rapor indirilirken bir sorun oluştu.');
+    },
+  });
+
   function refetchAll() {
     burnRate.refetch();
     zombies.refetch();
@@ -73,7 +85,21 @@ export default function DashboardScreen() {
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetchAll} tintColor={colors.primary} />}
     >
-      <Text style={styles.sectionTitle}>Aylık Harcama</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.sectionTitle}>Aylık Harcama</Text>
+        <Pressable
+          style={styles.exportButton}
+          onPress={() => exportCsvMutation.mutate()}
+          disabled={exportCsvMutation.isPending}
+        >
+          {exportCsvMutation.isPending ? (
+            <ActivityIndicator color={colors.primary} size="small" />
+          ) : (
+            <Text style={styles.exportButtonText}>📊 Raporu İndir (CSV)</Text>
+          )}
+        </Pressable>
+      </View>
+
       <View style={styles.burnRateCard}>
         <Text style={styles.burnRateAmount}>
           {formatMoney(burnRate.data?.monthlyTotal ?? 0, burnRate.data?.currency ?? '')}
@@ -198,14 +224,30 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: { padding: 16, paddingBottom: 40 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background },
+
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 10,
+  },
   sectionTitle: {
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
-    marginBottom: 10,
-    marginTop: 20,
     textTransform: 'uppercase',
   },
+  exportButton: {
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  exportButtonText: { color: colors.primary, fontSize: 12, fontWeight: '700' },
+
   burnRateCard: {
     backgroundColor: colors.surface,
     borderRadius: 16,

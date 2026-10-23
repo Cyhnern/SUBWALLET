@@ -125,4 +125,50 @@ export class AnalyticsService {
       orderBy: { nextBillingDate: 'asc' },
     });
   }
+
+  /**
+   * Kullanıcının tüm abonelik ve bütçe detaylarını CSV formatında raporlar.
+   */
+  async generateCsvReport(userId: string): Promise<string> {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const burnRate = await this.calculateBurnRate(userId);
+    const categorySpending = await this.spendingByCategory(userId);
+    const subs = await this.prisma.subscription.findMany({
+      where: { userId, deletedAt: null },
+      include: { serviceProvider: true, category: true, sharedAccount: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const lines: string[] = [];
+    lines.push(`"SUBWALLET ABONELIK & BUTCE RAPORU"`);
+    lines.push(`"Kullanici","${user.fullName} (${user.email})"`);
+    lines.push(`"Rapor Tarihi","${new Date().toLocaleDateString('tr-TR')}"`);
+    lines.push(`"Aylik Toplam Harcama","${burnRate.monthlyTotal} ${burnRate.currency}"`);
+    lines.push(`"Yillik Projeksiyon","${burnRate.yearlyTotal} ${burnRate.currency}"`);
+    lines.push(`"Aktif Abonelik Sayisi","${burnRate.subscriptionCount}"`);
+    lines.push('');
+
+    lines.push(`"Abonelik/Servis Adı","Fiyat","Para Birimi","Döngü","Kategori","Durum","Sonraki Yenileme","Son Kullanım","Ortak Hesap"`);
+
+    for (const sub of subs) {
+      const name = sub.serviceProvider?.name ?? sub.customName ?? 'İsimsiz Abonelik';
+      const category = sub.category?.name ?? 'Kategorisiz';
+      const shared = sub.sharedAccount?.name ?? 'Kişisel';
+      const nextDate = sub.nextBillingDate ? new Date(sub.nextBillingDate).toLocaleDateString('tr-TR') : '—';
+      const lastUsed = sub.lastUsedAt ? new Date(sub.lastUsedAt).toLocaleDateString('tr-TR') : '—';
+
+      lines.push(
+        `"${name}","${sub.price}","${sub.currency}","${sub.billingCycle}","${category}","${sub.status}","${nextDate}","${lastUsed}","${shared}"`
+      );
+    }
+
+    lines.push('');
+    lines.push(`"KATEGORI DAGILIMI"`);
+    lines.push(`"Kategori Adı","Aylık Tutar (${burnRate.currency})","Pay (%)"`);
+    for (const cat of categorySpending) {
+      lines.push(`"${cat.categoryName}","${cat.monthlyTotal}","%${cat.sharePercent}"`);
+    }
+
+    return lines.join('\n');
+  }
 }

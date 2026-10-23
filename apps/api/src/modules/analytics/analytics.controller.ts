@@ -1,5 +1,6 @@
-import { Controller, Get, Query, UseGuards, ParseIntPipe, DefaultValuePipe } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, ParseIntPipe, DefaultValuePipe, Res } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { AnalyticsService } from './analytics.service';
@@ -43,5 +44,13 @@ export class AnalyticsController {
   @Get('exchange-rates')
   exchangeRatesMap(@Query('base') baseCurrency?: string) {
     return this.exchangeRates.getRatesMap(baseCurrency || 'TRY');
+  }
+
+  @Get('export/csv')
+  async exportCsv(@CurrentUser() user: AuthenticatedUser, @Res() res: Response) {
+    const csvData = await this.analytics.generateCsvReport(user.id);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="subwallet_report_${Date.now()}.csv"`);
+    return res.status(200).send('\uFEFF' + csvData);
   }
 }

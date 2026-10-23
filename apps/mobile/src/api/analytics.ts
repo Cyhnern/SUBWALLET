@@ -9,4 +9,6 @@ export const analyticsApi = {
     apiRequest<Subscription[]>(`/analytics/upcoming-renewals?days=${days}`),
   exchangeRates: (baseCurrency = 'TRY') =>
     apiRequest<Record<string, number>>(`/analytics/exchange-rates?base=${baseCurrency}`),
+  exportCsvReport: () =>
+    apiRequest<string>('/analytics/export/csv', { responseType: 'text' }),
 };

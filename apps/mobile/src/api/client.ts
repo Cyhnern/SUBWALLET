@@ -37,6 +37,7 @@ interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   skipAuth?: boolean;
+  responseType?: 'json' | 'text';
 }
 
 /**
@@ -93,5 +94,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (res.status === 204) return undefined as T;
+  if (options.responseType === 'text' || res.headers.get('content-type')?.includes('text/csv')) {
+    return (await res.text()) as unknown as T;
+  }
   return res.json();
 }
