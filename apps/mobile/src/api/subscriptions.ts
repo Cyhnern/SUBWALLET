@@ -22,9 +22,22 @@ export interface UpdateSubscriptionInput {
   invoiceUrl?: string | null;
 }
 
+export interface SubscriptionFilters {
+  status?: SubscriptionStatus | 'all';
+  search?: string;
+  sortBy?: 'nextBillingDate' | 'priceAsc' | 'priceDesc' | 'nameAsc' | 'nameDesc';
+  categoryId?: string;
+}
+
 export const subscriptionsApi = {
-  list: (status?: SubscriptionStatus) => {
-    const query = status ? `?status=${status}` : '';
+  list: (filters?: SubscriptionFilters) => {
+    const params = new URLSearchParams();
+    if (filters?.status && filters.status !== 'all') params.append('status', filters.status);
+    if (filters?.search) params.append('search', filters.search);
+    if (filters?.sortBy) params.append('sortBy', filters.sortBy);
+    if (filters?.categoryId) params.append('categoryId', filters.categoryId);
+
+    const query = params.toString() ? `?${params.toString()}` : '';
     return apiRequest<Subscription[]>(`/subscriptions${query}`);
   },
 

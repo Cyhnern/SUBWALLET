@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
-import { SubscriptionStatus } from '@prisma/client';
+import { SubscriptionStatus, PaymentMethod } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
@@ -53,7 +53,14 @@ export class SubscriptionsService {
 
   async findAllForUser(
     userId: string,
-    filters: { status?: SubscriptionStatus; categoryId?: string; sharedAccountId?: string },
+    filters: {
+      status?: SubscriptionStatus;
+      categoryId?: string;
+      sharedAccountId?: string;
+      search?: string;
+      sortBy?: 'nextBillingDate' | 'priceAsc' | 'priceDesc' | 'nameAsc' | 'nameDesc';
+      paymentMethod?: PaymentMethod;
+    },
   ) {
     if (filters.sharedAccountId) {
       const membership = await this.prisma.sharedAccountMember.findUnique({
@@ -64,20 +71,41 @@ export class SubscriptionsService {
       }
     }
 
+    const searchTrimmed = filters.search?.trim();
+
+    let orderBy: any = { nextBillingDate: 'asc' };
+    if (filters.sortBy === 'priceAsc') {
+      orderBy = { price: 'asc' };
+    } else if (filters.sortBy === 'priceDesc') {
+      orderBy = { price: 'desc' };
+    } else if (filters.sortBy === 'nameAsc') {
+      orderBy = { customName: 'asc' };
+    } else if (filters.sortBy === 'nameDesc') {
+      orderBy = { customName: 'desc' };
+    }
+
     return this.prisma.subscription.findMany({
       where: {
         deletedAt: null,
         OR: [
           { userId },
-          ...(filters.sharedAccountId
-            ? [{ sharedAccountId: filters.sharedAccountId }]
-            : []),
+          ...(filters.sharedAccountId ? [{ sharedAccountId: filters.sharedAccountId }] : []),
         ],
         ...(filters.status ? { status: filters.status } : {}),
         ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
+        ...(filters.paymentMethod ? { paymentMethod: filters.paymentMethod } : {}),
+        ...(searchTrimmed
+          ? {
+              OR: [
+                { customName: { contains: searchTrimmed, mode: 'insensitive' } },
+                { notes: { contains: searchTrimmed, mode: 'insensitive' } },
+                { serviceProvider: { name: { contains: searchTrimmed, mode: 'insensitive' } } },
+              ],
+            }
+          : {}),
       },
       include: { serviceProvider: true, category: true },
-      orderBy: { nextBillingDate: 'asc' },
+      orderBy,
     });
   }
 

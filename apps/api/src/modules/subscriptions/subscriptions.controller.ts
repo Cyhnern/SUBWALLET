@@ -12,7 +12,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { SubscriptionStatus } from '@prisma/client';
+import { SubscriptionStatus, PaymentMethod } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { SubscriptionsService } from './subscriptions.service';
@@ -37,8 +37,18 @@ export class SubscriptionsController {
     @Query('status') status?: SubscriptionStatus,
     @Query('categoryId') categoryId?: string,
     @Query('sharedAccountId') sharedAccountId?: string,
+    @Query('search') search?: string,
+    @Query('sortBy') sortBy?: 'nextBillingDate' | 'priceAsc' | 'priceDesc' | 'nameAsc' | 'nameDesc',
+    @Query('paymentMethod') paymentMethod?: PaymentMethod,
   ) {
-    return this.service.findAllForUser(user.id, { status, categoryId, sharedAccountId });
+    return this.service.findAllForUser(user.id, {
+      status,
+      categoryId,
+      sharedAccountId,
+      search,
+      sortBy,
+      paymentMethod,
+    });
   }
 
   @Get(':id')
