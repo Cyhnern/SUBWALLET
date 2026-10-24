@@ -157,6 +157,44 @@ export class AuthService {
     return this.issueTokenPair(user.id, user.email);
   }
 
+  async createExchangeCode(tokens: TokenPair): Promise<string> {
+    const code = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 60 * 1000); // 60 seconds TTL
+
+    await this.prisma.oAuthExchangeCode.create({
+      data: {
+        code,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        expiresAt,
+      },
+    });
+
+    return code;
+  }
+
+  async exchangeCode(code: string): Promise<TokenPair> {
+    const record = await this.prisma.oAuthExchangeCode.findUnique({
+      where: { code },
+    });
+
+    if (!record || record.expiresAt < new Date()) {
+      if (record) {
+        await this.prisma.oAuthExchangeCode.delete({ where: { id: record.id } }).catch(() => {});
+      }
+      throw new UnauthorizedException('Geçersiz veya süresi dolmuş yetkilendirme kodu');
+    }
+
+    await this.prisma.oAuthExchangeCode.delete({
+      where: { id: record.id },
+    });
+
+    return {
+      accessToken: record.accessToken,
+      refreshToken: record.refreshToken,
+    };
+  }
+
   /** Refresh token rotasyonu: kaydı bul, hash'i doğrula, süre ve kullanıcı aktifliğini kontrol et, revokedAt kontrolü ve atomik updateMany ile race condition / çalıntı token koruması. */
   async refreshTokens(rawRefreshToken: string): Promise<TokenPair> {
     const [id, secret] = (rawRefreshToken || '').split('.');
@@ -244,6 +282,9 @@ export class AuthService {
           { revokedAt: { lt: subDays(new Date(), 7) } },
         ],
       },
+    });
+    await this.prisma.oAuthExchangeCode.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
     });
   }
 

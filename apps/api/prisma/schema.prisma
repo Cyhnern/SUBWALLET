@@ -287,3 +287,14 @@ model NotificationLog {
   @@index([userId, sentAt(sort: Desc)])
   @@map("notification_log")
 }
+
+model OAuthExchangeCode {
+  id           String   @id @default(uuid())
+  code         String   @unique
+  accessToken  String   @map("access_token")
+  refreshToken String   @map("refresh_token")
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("oauth_exchange_codes")
+}
