@@ -115,7 +115,7 @@ export class AuthService {
     return this.issueTokenPair(user.id, user.email);
   }
 
-  /** Refresh token rotasyonu: SHA-256 + timing-safe equal + token theft tespiti. */
+  /** Refresh token rotasyonu: SHA-256 + timing-safe equal + atomik updateMany race condition koruması + token theft tespiti. */
   async refreshTokens(rawRefreshToken: string): Promise<TokenPair> {
     const [id, secret] = (rawRefreshToken || '').split('.');
     if (!id || !secret) {
@@ -146,11 +146,18 @@ export class AuthService {
       throw new UnauthorizedException('Geçersiz veya süresi dolmuş refresh token');
     }
 
-    // Rotasyon: eskisini iptal et, yenisini oluştur
-    await this.prisma.refreshToken.update({
-      where: { id: tokenRecord.id },
+    // Atomik rotasyon (Race condition koruması): updateMany ile revokedAt'in null olduğu doğrulanarak güncellenir.
+    const updateResult = await this.prisma.refreshToken.updateMany({
+      where: { id: tokenRecord.id, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+
+    if (updateResult.count === 0) {
+      await this.revokeAllSessions(tokenRecord.userId);
+      throw new UnauthorizedException(
+        'Şüpheli hareket tespit edildi: Aynı token eşzamanlı olarak tekrar kullanıldı, tüm oturumlar kapatıldı.',
+      );
+    }
 
     return this.issueTokenPair(tokenRecord.user.id, tokenRecord.user.email);
   }

@@ -128,7 +128,7 @@ describe('AuthService', () => {
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({ id: 'user-1', email: 'test@ornek.com', emailVerifiedAt: new Date() });
       prisma.user.update.mockResolvedValue({ id: 'user-1', email: 'test@ornek.com' });
-      prisma.refreshToken.create.mockResolvedValue({ id: 'rt-1' });
+      prisma.refreshToken.create.mockResolvedValue({ id: 'rt-2' });
 
       const result = await service.validateOAuthLogin({
         provider: 'google',
@@ -170,7 +170,7 @@ describe('AuthService', () => {
       });
     });
 
-    it('geçerli token bulunduğunda eskisini iptal edip yenisini döner (SHA-256 + O(1) id.secret arama)', async () => {
+    it('geçerli token bulunduğunda atomik olarak eskisini iptal edip yenisini döner (SHA-256 + updateMany)', async () => {
       const secret = 'secret-raw-token';
       const tokenHash = sha256(secret);
       const rawToken = `rt-1.${secret}`;
@@ -182,7 +182,7 @@ describe('AuthService', () => {
         revokedAt: null,
         user: { id: 'user-1', email: 'test@ornek.com' },
       });
-      prisma.refreshToken.update.mockResolvedValue({});
+      prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 });
       prisma.refreshToken.create.mockResolvedValue({ id: 'rt-2' });
 
       const result = await service.refreshTokens(rawToken);
@@ -191,8 +191,8 @@ describe('AuthService', () => {
         where: { id: 'rt-1' },
         include: { user: true },
       });
-      expect(prisma.refreshToken.update).toHaveBeenCalledWith({
-        where: { id: 'rt-1' },
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { id: 'rt-1', revokedAt: null },
         data: expect.objectContaining({ revokedAt: expect.any(Date) }),
       });
       expect(result.accessToken).toBe('mock-access-token');
