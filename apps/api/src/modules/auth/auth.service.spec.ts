@@ -2,6 +2,7 @@ import { Test } from '@nestjs/testing';
 import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
 import * as crypto from 'crypto';
 import { AuthService } from './auth.service';
@@ -40,18 +41,19 @@ describe('AuthService', () => {
   });
 
   describe('register', () => {
-    it('e-posta zaten kayıtlıysa ConflictException fırlatır', async () => {
-      prisma.user.findUnique.mockResolvedValue({ id: 'existing-user' });
+    it('e-posta zaten kayıtlıysa P2002 hatasını yakalayıp ConflictException fırlatır', async () => {
+      const p2002Err = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: '5.22.0',
+      });
+      prisma.user.create.mockRejectedValue(p2002Err);
 
       await expect(
         service.register({ email: 'var@ornek.com', password: 'SuperGizli123!', fullName: 'Test' }),
       ).rejects.toThrow(ConflictException);
-
-      expect(prisma.user.create).not.toHaveBeenCalled();
     });
 
     it('yeni kullanıcıyı hash lenmiş parolayla oluşturur ve token çifti döner', async () => {
-      prisma.user.findUnique.mockResolvedValue(null);
       prisma.user.create.mockResolvedValue({ id: 'new-user', email: 'yeni@ornek.com' });
       prisma.refreshToken.create.mockResolvedValue({ id: 'rt-1' });
 

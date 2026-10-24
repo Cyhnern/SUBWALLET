@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
 import * as crypto from 'crypto';
 import { addDays, subDays } from 'date-fns';
@@ -47,17 +48,19 @@ export class AuthService {
 
   async register(dto: RegisterDto): Promise<TokenPair> {
     const email = dto.email.trim().toLowerCase();
-    const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) {
-      throw new ConflictException('Bu bilgilerle kayıt tamamlanamadı');
-    }
-
     const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
-    const user = await this.prisma.user.create({
-      data: { email, passwordHash, fullName: dto.fullName },
-    });
 
-    return this.issueTokenPair(user.id, user.email);
+    try {
+      const user = await this.prisma.user.create({
+        data: { email, passwordHash, fullName: dto.fullName },
+      });
+      return this.issueTokenPair(user.id, user.email);
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('Bu bilgilerle kayıt tamamlanamadı');
+      }
+      throw e;
+    }
   }
 
   async login(dto: LoginDto): Promise<TokenPair> {
