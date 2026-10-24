@@ -9,7 +9,7 @@ import { PrismaService } from '../src/common/prisma/prisma.service';
  * Amaç, mock'lanmış birim testlerin aksine gerçek HTTP katmanı + gerçek veritabanı
  * üzerinden auth akışının uçtan uca doğru çalıştığını doğrulamaktır.
  */
-describe('Auth (e2e)', () => {
+describe('Auth & Categories (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
   const testEmail = `e2e-${Date.now()}@ornek.com`;
@@ -78,6 +78,20 @@ describe('Auth (e2e)', () => {
       .get('/api/v1/subscriptions')
       .set('Authorization', `Bearer ${loginRes.body.accessToken}`)
       .expect(200);
+  });
+
+  it('GET /categories -> 200 ve en az 10 sistem kategorisi döner', async () => {
+    const loginRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: testEmail, password: 'gizli123' });
+
+    const catRes = await request(app.getHttpServer())
+      .get('/api/v1/categories')
+      .set('Authorization', `Bearer ${loginRes.body.accessToken}`)
+      .expect(200);
+
+    expect(Array.isArray(catRes.body)).toBe(true);
+    expect(catRes.body.length).toBeGreaterThanOrEqual(10);
   });
 
   it('POST /auth/refresh -> geçerli refreshToken ile yeni token çifti döner', async () => {

@@ -1,5 +1,10 @@
 import { Module } from '@nestjs/common';
+import { CategoriesController } from './categories.controller';
+import { CategoriesService } from './categories.service';
 
-// TODO (Faz 1): Kategori CRUD + sistem varsayılan kategori seed'i.
-@Module({})
+@Module({
+  controllers: [CategoriesController],
+  providers: [CategoriesService],
+  exports: [CategoriesService],
+})
 export class CategoriesModule {}
