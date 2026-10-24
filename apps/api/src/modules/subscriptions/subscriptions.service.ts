@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
-import { SubscriptionStatus, PaymentMethod } from '@prisma/client';
+import { SubscriptionStatus, PaymentMethod, Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
@@ -84,25 +84,30 @@ export class SubscriptionsService {
       orderBy = { customName: 'desc' };
     }
 
+    const scope: Prisma.SubscriptionWhereInput = {
+      OR: [
+        { userId },
+        ...(filters.sharedAccountId ? [{ sharedAccountId: filters.sharedAccountId }] : []),
+      ],
+    };
+
+    const searchFilter: Prisma.SubscriptionWhereInput | undefined = searchTrimmed
+      ? {
+          OR: [
+            { customName: { contains: searchTrimmed, mode: 'insensitive' } },
+            { notes: { contains: searchTrimmed, mode: 'insensitive' } },
+            { serviceProvider: { name: { contains: searchTrimmed, mode: 'insensitive' } } },
+          ],
+        }
+      : undefined;
+
     return this.prisma.subscription.findMany({
       where: {
         deletedAt: null,
-        OR: [
-          { userId },
-          ...(filters.sharedAccountId ? [{ sharedAccountId: filters.sharedAccountId }] : []),
-        ],
+        AND: [scope, ...(searchFilter ? [searchFilter] : [])],
         ...(filters.status ? { status: filters.status } : {}),
         ...(filters.categoryId ? { categoryId: filters.categoryId } : {}),
         ...(filters.paymentMethod ? { paymentMethod: filters.paymentMethod } : {}),
-        ...(searchTrimmed
-          ? {
-              OR: [
-                { customName: { contains: searchTrimmed, mode: 'insensitive' } },
-                { notes: { contains: searchTrimmed, mode: 'insensitive' } },
-                { serviceProvider: { name: { contains: searchTrimmed, mode: 'insensitive' } } },
-              ],
-            }
-          : {}),
       },
       include: { serviceProvider: true, category: true },
       orderBy,

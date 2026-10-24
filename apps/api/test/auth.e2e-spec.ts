@@ -8,9 +8,6 @@ import { PrismaService } from '../src/common/prisma/prisma.service';
  * Bu test paketi ÇALIŞAN bir Postgres + Redis'e ihtiyaç duyar (docker compose up -d).
  * Amaç, mock'lanmış birim testlerin aksine gerçek HTTP katmanı + gerçek veritabanı
  * üzerinden auth akışının uçtan uca doğru çalıştığını doğrulamaktır.
- *
- * CI'da ayrı bir test veritabanı (`DATABASE_URL` .env.test'ten) kullanılması önerilir;
- * bu iskelet basitlik için varsayılan DATABASE_URL'i kullanır.
  */
 describe('Auth (e2e)', () => {
   let app: INestApplication;
@@ -31,7 +28,6 @@ describe('Auth (e2e)', () => {
   });
 
   afterAll(async () => {
-    // Testin bıraktığı veriyi temizle ki paket tekrar tekrar çalıştırılabilsin.
     await prisma.user.deleteMany({ where: { email: testEmail } });
     await app.close();
   });
@@ -96,10 +92,45 @@ describe('Auth (e2e)', () => {
 
     expect(refreshRes.body).toHaveProperty('accessToken');
 
-    // Rotasyon doğrulaması: eski refreshToken artık geçersiz olmalı.
     await request(app.getHttpServer())
       .post('/api/v1/auth/refresh')
       .send({ refreshToken: loginRes.body.refreshToken })
       .expect(401);
+  });
+
+  it('VERİ İZOLASYONU S-1: A kullanıcısı abonelik ekler, B kullanıcısı ?search= ile aradığında göremez (boş dizi döner)', async () => {
+    const emailA = `e2e-a-${Date.now()}@ornek.com`;
+    const emailB = `e2e-b-${Date.now()}@ornek.com`;
+
+    const resA = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ email: emailA, password: 'gizli123', fullName: 'User A' });
+    const tokenA = resA.body.accessToken;
+
+    await request(app.getHttpServer())
+      .post('/api/v1/subscriptions')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({
+        customName: 'Gizli Netflix A',
+        price: 100,
+        currency: 'TRY',
+        billingCycle: 'monthly',
+        startDate: '2026-10-01',
+      })
+      .expect(201);
+
+    const resB = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ email: emailB, password: 'gizli123', fullName: 'User B' });
+    const tokenB = resB.body.accessToken;
+
+    const searchResB = await request(app.getHttpServer())
+      .get('/api/v1/subscriptions?search=Gizli')
+      .set('Authorization', `Bearer ${tokenB}`)
+      .expect(200);
+
+    expect(searchResB.body).toEqual([]);
+
+    await prisma.user.deleteMany({ where: { email: { in: [emailA, emailB] } } });
   });
 });

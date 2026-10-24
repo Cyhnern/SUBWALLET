@@ -3,8 +3,6 @@ import { BadRequestException, ForbiddenException, NotFoundException } from '@nes
 import { SubscriptionsService } from './subscriptions.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
-// PrismaService'in ihtiyaç duyulan metodlarının sahte (mock) sürümü.
-// Gerçek bir veritabanına bağlanmadan iş mantığını izole test etmemizi sağlar.
 const createMockPrisma = () => ({
   subscription: {
     create: jest.fn(),
@@ -27,8 +25,6 @@ describe('SubscriptionsService', () => {
 
   beforeEach(async () => {
     prisma = createMockPrisma();
-    // $transaction çağrıldığında gerçek prisma mock'unu callback'e verelim ki
-    // içindeki tx.subscription.update / tx.subscriptionHistory.create çağrıları izlenebilsin.
     prisma.$transaction.mockImplementation((cb: any) => cb(prisma));
 
     const module = await Test.createTestingModule({
@@ -36,6 +32,15 @@ describe('SubscriptionsService', () => {
     }).compile();
 
     service = module.get(SubscriptionsService);
+  });
+
+  describe('findAllForUser', () => {
+    it('search verildiğinde de kullanıcı kapsamını korur', async () => {
+      prisma.subscription.findMany.mockResolvedValue([]);
+      await service.findAllForUser('user-1', { search: 'net' });
+      const { where } = prisma.subscription.findMany.mock.calls[0][0];
+      expect(JSON.stringify(where)).toContain('"userId":"user-1"');
+    });
   });
 
   describe('transitionStatus', () => {
@@ -143,7 +148,7 @@ describe('SubscriptionsService', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             userId: 'user-1',
-            status: 'active', // trialEndDate verilmediği için doğrudan active
+            status: 'active',
           }),
         }),
       );
