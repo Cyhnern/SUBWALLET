@@ -35,7 +35,7 @@ describe('Auth & Categories (e2e)', () => {
   it('POST /auth/register -> 201 ve token çifti döner', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/auth/register')
-      .send({ email: testEmail, password: 'gizli123', fullName: 'E2E Test Kullanıcı' })
+      .send({ email: testEmail, password: 'Gizli123!', fullName: 'E2E Test Kullanıcı' })
       .expect(201);
 
     expect(res.body).toHaveProperty('accessToken');
@@ -45,14 +45,14 @@ describe('Auth & Categories (e2e)', () => {
   it('aynı e-posta ile ikinci kayıt 409 döner', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/auth/register')
-      .send({ email: testEmail, password: 'gizli123', fullName: 'Tekrar' })
+      .send({ email: testEmail, password: 'Gizli123!', fullName: 'Tekrar' })
       .expect(409);
   });
 
   it('POST /auth/login -> doğru bilgilerle 200 ve token döner', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
-      .send({ email: testEmail, password: 'gizli123' })
+      .send({ email: testEmail, password: 'Gizli123!' })
       .expect(200);
 
     expect(res.body).toHaveProperty('accessToken');
@@ -72,7 +72,7 @@ describe('Auth & Categories (e2e)', () => {
   it('geçerli accessToken ile korumalı uç noktaya erişilebilir', async () => {
     const loginRes = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
-      .send({ email: testEmail, password: 'gizli123' });
+      .send({ email: testEmail, password: 'Gizli123!' });
 
     await request(app.getHttpServer())
       .get('/api/v1/subscriptions')
@@ -83,7 +83,7 @@ describe('Auth & Categories (e2e)', () => {
   it('GET /categories -> 200 ve en az 10 sistem kategorisi döner', async () => {
     const loginRes = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
-      .send({ email: testEmail, password: 'gizli123' });
+      .send({ email: testEmail, password: 'Gizli123!' });
 
     const catRes = await request(app.getHttpServer())
       .get('/api/v1/categories')
@@ -97,7 +97,7 @@ describe('Auth & Categories (e2e)', () => {
   it('POST /auth/refresh -> geçerli refreshToken ile yeni token çifti döner', async () => {
     const loginRes = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
-      .send({ email: testEmail, password: 'gizli123' });
+      .send({ email: testEmail, password: 'Gizli123!' });
 
     const refreshRes = await request(app.getHttpServer())
       .post('/api/v1/auth/refresh')
@@ -118,7 +118,7 @@ describe('Auth & Categories (e2e)', () => {
 
     const resA = await request(app.getHttpServer())
       .post('/api/v1/auth/register')
-      .send({ email: emailA, password: 'gizli123', fullName: 'User A' });
+      .send({ email: emailA, password: 'Gizli123!', fullName: 'User A' });
     const tokenA = resA.body.accessToken;
 
     await request(app.getHttpServer())
@@ -135,7 +135,7 @@ describe('Auth & Categories (e2e)', () => {
 
     const resB = await request(app.getHttpServer())
       .post('/api/v1/auth/register')
-      .send({ email: emailB, password: 'gizli123', fullName: 'User B' });
+      .send({ email: emailB, password: 'Gizli123!', fullName: 'User B' });
     const tokenB = resB.body.accessToken;
 
     const searchResB = await request(app.getHttpServer())

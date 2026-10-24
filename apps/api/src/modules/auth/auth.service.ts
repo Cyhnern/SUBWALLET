@@ -46,22 +46,24 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto): Promise<TokenPair> {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const email = dto.email.trim().toLowerCase();
+    const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
       throw new ConflictException('Bu bilgilerle kayıt tamamlanamadı');
     }
 
     const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
     const user = await this.prisma.user.create({
-      data: { email: dto.email, passwordHash, fullName: dto.fullName },
+      data: { email, passwordHash, fullName: dto.fullName },
     });
 
     return this.issueTokenPair(user.id, user.email);
   }
 
   async login(dto: LoginDto): Promise<TokenPair> {
+    const email = dto.email.trim().toLowerCase();
     const user = await this.prisma.user.findFirst({
-      where: { email: dto.email, deletedAt: null, isActive: true },
+      where: { email, deletedAt: null, isActive: true },
     });
 
     const DUMMY_HASH =
@@ -78,6 +80,7 @@ export class AuthService {
 
   /** Google/Apple gibi bir sağlayıcıdan doğrulanmış profil ile giriş/kayıt. */
   async validateOAuthLogin(profile: OAuthProfile): Promise<TokenPair> {
+    const email = profile.email.trim().toLowerCase();
     let user = await this.prisma.user.findUnique({
       where: {
         oauthProvider_oauthProviderId: {
@@ -88,7 +91,7 @@ export class AuthService {
     });
 
     if (!user) {
-      const existingUser = await this.prisma.user.findUnique({ where: { email: profile.email } });
+      const existingUser = await this.prisma.user.findUnique({ where: { email } });
       if (existingUser) {
         if (!existingUser.emailVerifiedAt) {
           throw new UnauthorizedException(
@@ -102,8 +105,8 @@ export class AuthService {
       } else {
         user = await this.prisma.user.create({
           data: {
-            email: profile.email,
-            fullName: profile.fullName ?? profile.email.split('@')[0],
+            email,
+            fullName: profile.fullName ?? email.split('@')[0],
             avatarUrl: profile.avatarUrl,
             oauthProvider: profile.provider,
             oauthProviderId: profile.providerId,
