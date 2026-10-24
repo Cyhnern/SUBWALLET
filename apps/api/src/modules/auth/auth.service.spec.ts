@@ -44,7 +44,7 @@ describe('AuthService', () => {
       prisma.user.findUnique.mockResolvedValue({ id: 'existing-user' });
 
       await expect(
-        service.register({ email: 'var@ornek.com', password: 'Gizli123!', fullName: 'Test' }),
+        service.register({ email: 'var@ornek.com', password: 'SuperGizli123!', fullName: 'Test' }),
       ).rejects.toThrow(ConflictException);
 
       expect(prisma.user.create).not.toHaveBeenCalled();
@@ -57,7 +57,7 @@ describe('AuthService', () => {
 
       const result = await service.register({
         email: 'yeni@ornek.com',
-        password: 'Gizli123!',
+        password: 'SuperGizli123!',
         fullName: 'Yeni Kullanıcı',
       });
 
@@ -65,8 +65,8 @@ describe('AuthService', () => {
       expect(result.refreshToken).toContain('rt-1.');
 
       const createCall = prisma.user.create.mock.calls[0][0];
-      expect(createCall.data.passwordHash).not.toBe('Gizli123!');
-      expect(await argon2.verify(createCall.data.passwordHash, 'Gizli123!')).toBe(true);
+      expect(createCall.data.passwordHash).not.toBe('SuperGizli123!');
+      expect(await argon2.verify(createCall.data.passwordHash, 'SuperGizli123!')).toBe(true);
     });
   });
 
@@ -80,7 +80,7 @@ describe('AuthService', () => {
     });
 
     it('yanlış parolada UnauthorizedException fırlatır', async () => {
-      const correctHash = await argon2.hash('Gizli123!', { type: argon2.argon2id });
+      const correctHash = await argon2.hash('SuperGizli123!', { type: argon2.argon2id });
       prisma.user.findFirst.mockResolvedValue({
         id: 'user-1',
         email: 'test@ornek.com',
@@ -93,7 +93,7 @@ describe('AuthService', () => {
     });
 
     it('doğru bilgilerle token çifti döner', async () => {
-      const correctHash = await argon2.hash('Gizli123!', { type: argon2.argon2id });
+      const correctHash = await argon2.hash('SuperGizli123!', { type: argon2.argon2id });
       prisma.user.findFirst.mockResolvedValue({
         id: 'user-1',
         email: 'test@ornek.com',
@@ -101,7 +101,7 @@ describe('AuthService', () => {
       });
       prisma.refreshToken.create.mockResolvedValue({ id: 'rt-1' });
 
-      const result = await service.login({ email: 'test@ornek.com', password: 'Gizli123!' });
+      const result = await service.login({ email: 'test@ornek.com', password: 'SuperGizli123!' });
 
       expect(result.accessToken).toBe('mock-access-token');
       expect(result.refreshToken).toContain('rt-1.');

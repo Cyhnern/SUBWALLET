@@ -9,10 +9,10 @@ export class RegisterDto {
   @IsEmail()
   email: string;
 
-  @ApiProperty({ minLength: 8, example: 'Gizli123!' })
+  @ApiProperty({ minLength: 10, example: 'GizliSifre123!' })
   @IsString()
-  @MinLength(8)
-  @MaxLength(72)
+  @MinLength(10)
+  @MaxLength(128)
   @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/, {
     message: 'Parola en az bir büyük harf, bir küçük harf ve bir rakam içermelidir',
   })
