@@ -49,6 +49,20 @@ describe('Auth & Categories (e2e)', () => {
     expect(res.body).toHaveProperty('message');
   });
 
+  it('POST /auth/oauth/google -> sahte/süresi dolmuş idToken ile 401 döner', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/oauth/google')
+      .send({ idToken: 'sahte-google-id-token-12345' })
+      .expect(401);
+  });
+
+  it('POST /auth/oauth/apple -> sahte/süresi dolmuş identityToken ile 401 döner', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/oauth/apple')
+      .send({ identityToken: 'sahte-apple-identity-token-12345' })
+      .expect(401);
+  });
+
   it('aynı e-posta ile ikinci kayıt 409 döner', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/auth/register')

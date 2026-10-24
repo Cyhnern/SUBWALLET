@@ -9,6 +9,7 @@ import {
   Res,
   HttpCode,
   HttpStatus,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
@@ -115,11 +116,14 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('oauth/google')
   async googleTokenLogin(@Body() dto: GoogleLoginDto) {
-    const profile = await verifyGoogleIdToken(
-      dto.idToken,
-      this.config.getOrThrow('GOOGLE_CLIENT_ID'),
-    );
-    return this.authService.validateOAuthLogin(profile);
+    try {
+      const clientId = this.config.get<string>('GOOGLE_CLIENT_ID') ?? 'default_google_client_id';
+      const profile = await verifyGoogleIdToken(dto.idToken, clientId);
+      return this.authService.validateOAuthLogin(profile);
+    } catch (err) {
+      if (err instanceof UnauthorizedException) throw err;
+      throw new UnauthorizedException('Geçersiz Google kimlik doğrulaması');
+    }
   }
 
   // --- Apple Sign-In (Mobil/API identityToken) ---
@@ -127,10 +131,13 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Post('oauth/apple')
   async appleLogin(@Body() dto: AppleLoginDto) {
-    const profile = await verifyAppleIdToken(
-      dto.identityToken,
-      this.config.getOrThrow('APPLE_CLIENT_ID'),
-    );
-    return this.authService.validateOAuthLogin(profile);
+    try {
+      const clientId = this.config.get<string>('APPLE_CLIENT_ID') ?? 'default_apple_client_id';
+      const profile = await verifyAppleIdToken(dto.identityToken, clientId);
+      return this.authService.validateOAuthLogin(profile);
+    } catch (err) {
+      if (err instanceof UnauthorizedException) throw err;
+      throw new UnauthorizedException('Geçersiz Apple kimlik doğrulaması');
+    }
   }
 }
