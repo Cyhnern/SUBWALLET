@@ -5,9 +5,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import * as argon2 from 'argon2';
 import * as crypto from 'crypto';
-import { addDays } from 'date-fns';
+import { addDays, subDays } from 'date-fns';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -193,12 +194,24 @@ export class AuthService {
     });
   }
 
+  @Cron(CronExpression.EVERY_DAY_AT_3AM, { timeZone: 'UTC' })
+  async purgeStaleRefreshTokens() {
+    await this.prisma.refreshToken.deleteMany({
+      where: {
+        OR: [
+          { expiresAt: { lt: new Date() } },
+          { revokedAt: { lt: subDays(new Date(), 7) } },
+        ],
+      },
+    });
+  }
+
   async purgeExpiredTokens(): Promise<number> {
     const result = await this.prisma.refreshToken.deleteMany({
       where: {
         OR: [
           { expiresAt: { lt: new Date() } },
-          { revokedAt: { lt: addDays(new Date(), -7) } },
+          { revokedAt: { lt: subDays(new Date(), 7) } },
         ],
       },
     });
