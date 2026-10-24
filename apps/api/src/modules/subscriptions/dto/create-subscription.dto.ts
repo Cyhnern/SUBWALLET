@@ -11,7 +11,9 @@ import {
   Length,
   ValidateIf,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { BillingCycle, PaymentMethod } from '@prisma/client';
+import { SUPPORTED_CURRENCIES, toUpperTrim } from '../../../common/currency';
 
 export class CreateSubscriptionDto {
   @ApiPropertyOptional({ description: 'Katalogdaki servis sağlayıcı ID (Netflix, Spotify vb.)' })
@@ -40,9 +42,9 @@ export class CreateSubscriptionDto {
   @Min(0)
   price: number;
 
-  @ApiProperty({ example: 'USD' })
-  @IsString()
-  @Length(3, 3)
+  @ApiProperty({ example: 'USD', enum: SUPPORTED_CURRENCIES })
+  @Transform(toUpperTrim)
+  @IsIn(SUPPORTED_CURRENCIES, { message: `Para birimi şunlardan biri olmalıdır: ${SUPPORTED_CURRENCIES.join(', ')}` })
   currency: string;
 
   @ApiProperty({ enum: BillingCycle })

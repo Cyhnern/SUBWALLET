@@ -1,6 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-
-export const SUPPORTED_CURRENCIES = new Set(['TRY', 'USD', 'EUR', 'GBP']);
+import { SUPPORTED_CURRENCIES } from '../../common/currency';
 
 // Fallback exchange rates relative to USD
 const FALLBACK_USD_RATES: Record<string, number> = {
@@ -15,15 +14,13 @@ export class ExchangeRatesService {
   private readonly logger = new Logger(ExchangeRatesService.name);
   private ratesCache: Record<string, number> = { ...FALLBACK_USD_RATES };
   private lastFetchTime = 0;
-  private readonly CACHE_TTL_MS = 60 * 60 * 1000; // 1 saat önbellek
+  private readonly CACHE_TTL_MS = 60 * 60 * 1000;
 
   private validateCurrency(currency: string): string {
     const curr = (currency || '').toUpperCase().trim();
-    if (!curr || !SUPPORTED_CURRENCIES.has(curr)) {
+    if (!curr || !(SUPPORTED_CURRENCIES as readonly string[]).includes(curr)) {
       throw new BadRequestException(
-        `Desteklenmeyen veya geçersiz para birimi: '${currency}'. Desteklenenler: ${Array.from(
-          SUPPORTED_CURRENCIES,
-        ).join(', ')}`,
+        `Desteklenmeyen veya geçersiz para birimi: '${currency}'. Desteklenenler: ${SUPPORTED_CURRENCIES.join(', ')}`,
       );
     }
     return curr;
@@ -74,7 +71,7 @@ export class ExchangeRatesService {
     const baseRateToUsd = this.ratesCache[base] ?? FALLBACK_USD_RATES[base];
 
     const rates: Record<string, number> = {};
-    for (const cur of Array.from(SUPPORTED_CURRENCIES)) {
+    for (const cur of SUPPORTED_CURRENCIES) {
       const curRateToUsd = this.ratesCache[cur] ?? FALLBACK_USD_RATES[cur];
       rates[cur] = Math.round((curRateToUsd / baseRateToUsd) * 10000) / 10000;
     }

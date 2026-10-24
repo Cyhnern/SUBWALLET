@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { startOfUtcDay, utcHorizonEnd } from '../../common/date.util';
 import { normalizeToMonthly } from '../subscriptions/billing-cycle.util';
@@ -13,6 +13,8 @@ export interface BurnRateResult {
 
 @Injectable()
 export class AnalyticsService {
+  private readonly logger = new Logger(AnalyticsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly exchangeRates: ExchangeRatesService,
@@ -39,22 +41,30 @@ export class AnalyticsService {
 
     let monthlyTotal = 0;
     for (const sub of personalSubs) {
-      const monthlyInSubCurrency = normalizeToMonthly(Number(sub.price), sub.billingCycle, sub.customCycleDays);
-      const convertedMonthly = this.exchangeRates.convert(monthlyInSubCurrency, sub.currency, targetCurrency);
-      monthlyTotal += convertedMonthly;
+      try {
+        const monthlyInSubCurrency = normalizeToMonthly(Number(sub.price), sub.billingCycle, sub.customCycleDays);
+        const convertedMonthly = this.exchangeRates.convert(monthlyInSubCurrency, sub.currency, targetCurrency);
+        monthlyTotal += convertedMonthly;
+      } catch (err) {
+        this.logger.warn(`Bozuk para birimli abonelik atlandı (subId=${sub.id}): ${err}`);
+      }
     }
     for (const split of sharedSplits) {
-      const monthlyInSubCurrency = normalizeToMonthly(
-        Number(split.computedAmount),
-        split.subscription.billingCycle,
-        split.subscription.customCycleDays,
-      );
-      const convertedMonthly = this.exchangeRates.convert(
-        monthlyInSubCurrency,
-        split.subscription.currency,
-        targetCurrency,
-      );
-      monthlyTotal += convertedMonthly;
+      try {
+        const monthlyInSubCurrency = normalizeToMonthly(
+          Number(split.computedAmount),
+          split.subscription.billingCycle,
+          split.subscription.customCycleDays,
+        );
+        const convertedMonthly = this.exchangeRates.convert(
+          monthlyInSubCurrency,
+          split.subscription.currency,
+          targetCurrency,
+        );
+        monthlyTotal += convertedMonthly;
+      } catch (err) {
+        this.logger.warn(`Bozuk para birimli ortak pay atlandı (splitId=${split.id}): ${err}`);
+      }
     }
 
     return {
@@ -79,20 +89,24 @@ export class AnalyticsService {
       { categoryName: string; monthlyTotal: number; colorHex: string | null }
     >();
     for (const sub of subs) {
-      const key = sub.categoryId ?? 'uncategorized';
-      const name = sub.category?.name ?? 'Kategorisiz';
-      const monthlyInSubCurrency = normalizeToMonthly(Number(sub.price), sub.billingCycle, sub.customCycleDays);
-      const monthly = this.exchangeRates.convert(monthlyInSubCurrency, sub.currency, targetCurrency);
+      try {
+        const key = sub.categoryId ?? 'uncategorized';
+        const name = sub.category?.name ?? 'Kategorisiz';
+        const monthlyInSubCurrency = normalizeToMonthly(Number(sub.price), sub.billingCycle, sub.customCycleDays);
+        const monthly = this.exchangeRates.convert(monthlyInSubCurrency, sub.currency, targetCurrency);
 
-      const existing = grouped.get(key);
-      if (existing) {
-        existing.monthlyTotal += monthly;
-      } else {
-        grouped.set(key, {
-          categoryName: name,
-          monthlyTotal: monthly,
-          colorHex: sub.category?.colorHex ?? null,
-        });
+        const existing = grouped.get(key);
+        if (existing) {
+          existing.monthlyTotal += monthly;
+        } else {
+          grouped.set(key, {
+            categoryName: name,
+            monthlyTotal: monthly,
+            colorHex: sub.category?.colorHex ?? null,
+          });
+        }
+      } catch (err) {
+        this.logger.warn(`Bozuk para birimli abonelik atlandı (subId=${sub.id}): ${err}`);
       }
     }
 
@@ -126,9 +140,6 @@ export class AnalyticsService {
     });
   }
 
-  /**
-   * Kullanıcının tüm abonelik ve bütçe detaylarını CSV formatında raporlar.
-   */
   async generateCsvReport(userId: string): Promise<string> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const burnRate = await this.calculateBurnRate(userId);
