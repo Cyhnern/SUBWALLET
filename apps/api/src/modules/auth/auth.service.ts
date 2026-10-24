@@ -214,7 +214,7 @@ export class AuthService {
       },
     );
 
-    const secret = crypto.randomBytes(64).toString('hex');
+    const secret = crypto.randomBytes(48).toString('base64url');
     const tokenHash = this.hashSecret(secret);
     const refreshDays = Number(this.config.get('JWT_REFRESH_EXPIRES_IN_DAYS', 30));
 
