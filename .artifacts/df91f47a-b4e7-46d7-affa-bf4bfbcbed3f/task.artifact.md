@@ -1,0 +1,5 @@
+- `[ ]` 1. Prisma şemasına e-posta doğrulama alanları ekleme ve migration oluşturma
+- `[ ]` 2. AuthService içinde e-posta doğrulama token üretimi ve doğrulama mantığını uygulama
+- `[ ]` 3. AuthController'a GET /auth/verify-email uç noktasını ekleme
+- `[ ]` 4. OAuth hesap birleştirme mantığını güncelleme
+- `[ ]` 5. Birim ve E2E testleri yazma ve doğrulama

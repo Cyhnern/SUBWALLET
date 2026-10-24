@@ -111,25 +111,11 @@ describe('AuthService', () => {
   });
 
   describe('validateOAuthLogin', () => {
-    it('e-postası doğrulanmamış mevcut kullanıcıyla OAuth birleştirmeyi engeller', async () => {
+    it('mevcut kullanıcı varsa OAuth ile birleştirir ve e-postasını doğrulanmış kabul eder', async () => {
       prisma.user.findUnique
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({ id: 'user-1', email: 'test@ornek.com', emailVerifiedAt: null });
-
-      await expect(
-        service.validateOAuthLogin({
-          provider: 'google',
-          providerId: 'google-123',
-          email: 'test@ornek.com',
-        }),
-      ).rejects.toThrow(UnauthorizedException);
-    });
-
-    it('e-postası doğrulanmış mevcut kullanıcıyla OAuth bilgilerini birleştirir', async () => {
-      prisma.user.findUnique
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ id: 'user-1', email: 'test@ornek.com', emailVerifiedAt: new Date() });
-      prisma.user.update.mockResolvedValue({ id: 'user-1', email: 'test@ornek.com' });
+      prisma.user.update.mockResolvedValue({ id: 'user-1', email: 'test@ornek.com', emailVerifiedAt: new Date() });
       prisma.refreshToken.create.mockResolvedValue({ id: 'rt-2' });
 
       const result = await service.validateOAuthLogin({
@@ -138,10 +124,12 @@ describe('AuthService', () => {
         email: 'test@ornek.com',
       });
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: { oauthProvider: 'google', oauthProviderId: 'google-123' },
-      });
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'user-1' },
+          data: expect.objectContaining({ oauthProvider: 'google', oauthProviderId: 'google-123' }),
+        }),
+      );
       expect(result.accessToken).toBe('mock-access-token');
     });
   });

@@ -69,6 +69,8 @@ model User {
   oauthProvider     String?   @map("oauth_provider")
   oauthProviderId   String?   @map("oauth_provider_id")
   emailVerifiedAt   DateTime? @map("email_verified_at")
+  verificationToken String?   @map("verification_token")
+  verificationTokenExpiresAt DateTime? @map("verification_token_expires_at")
   pushToken         String?   @map("push_token")
   isActive          Boolean   @default(true) @map("is_active")
   createdAt         DateTime  @default(now()) @map("created_at")

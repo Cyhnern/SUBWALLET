@@ -37,6 +37,18 @@ describe('Auth & Categories (e2e)', () => {
     expect(res.body).toHaveProperty('refreshToken');
   });
 
+  it('GET /auth/verify-email -> geçerli token ile e-posta doğrulanır', async () => {
+    const userInDb = await prisma.user.findUnique({ where: { email: testEmail } });
+    const token = userInDb?.verificationToken;
+    expect(token).toBeDefined();
+
+    const res = await request(app.getHttpServer())
+      .get(`/api/v1/auth/verify-email?token=${token}`)
+      .expect(200);
+
+    expect(res.body).toHaveProperty('message');
+  });
+
   it('aynı e-posta ile ikinci kayıt 409 döner', async () => {
     await request(app.getHttpServer())
       .post('/api/v1/auth/register')

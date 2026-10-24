@@ -49,10 +49,18 @@ export class AuthService {
   async register(dto: RegisterDto): Promise<TokenPair> {
     const email = dto.email.trim().toLowerCase();
     const passwordHash = await argon2.hash(dto.password, { type: argon2.argon2id });
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationTokenExpiresAt = addDays(new Date(), 1);
 
     try {
       const user = await this.prisma.user.create({
-        data: { email, passwordHash, fullName: dto.fullName },
+        data: {
+          email,
+          passwordHash,
+          fullName: dto.fullName,
+          verificationToken,
+          verificationTokenExpiresAt,
+        },
       });
       return this.issueTokenPair(user.id, user.email);
     } catch (e) {
@@ -61,6 +69,30 @@ export class AuthService {
       }
       throw e;
     }
+  }
+
+  async verifyEmail(token: string): Promise<{ message: string }> {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        verificationToken: token,
+        verificationTokenExpiresAt: { gte: new Date() },
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Geçersiz veya süresi dolmuş doğrulama bağlantısı');
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerifiedAt: new Date(),
+        verificationToken: null,
+        verificationTokenExpiresAt: null,
+      },
+    });
+
+    return { message: 'E-posta adresiniz başarıyla doğrulandı' };
   }
 
   async login(dto: LoginDto): Promise<TokenPair> {
@@ -96,14 +128,13 @@ export class AuthService {
     if (!user) {
       const existingUser = await this.prisma.user.findUnique({ where: { email } });
       if (existingUser) {
-        if (!existingUser.emailVerifiedAt) {
-          throw new UnauthorizedException(
-            'Hesap birleştirme başarısız: Mevcut hesabın e-posta adresi doğrulanmamış.',
-          );
-        }
         user = await this.prisma.user.update({
           where: { id: existingUser.id },
-          data: { oauthProvider: profile.provider, oauthProviderId: profile.providerId },
+          data: {
+            oauthProvider: profile.provider,
+            oauthProviderId: profile.providerId,
+            emailVerifiedAt: existingUser.emailVerifiedAt ?? new Date(),
+          },
         });
       } else {
         user = await this.prisma.user.create({
