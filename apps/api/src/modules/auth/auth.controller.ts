@@ -20,7 +20,8 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { AppleLoginDto } from './dto/apple-login.dto';
-import { verifyAppleIdentityToken } from './apple-auth.util';
+import { GoogleLoginDto } from './dto/google-login.dto';
+import { verifyGoogleIdToken, verifyAppleIdToken } from './oauth-verify.util';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { GoogleProfile } from './strategies/google.strategy';
@@ -104,12 +105,24 @@ export class AuthController {
     );
   }
 
+  // --- Google Token Sign-In (Mobil/API) ---
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('oauth/google')
+  async googleTokenLogin(@Body() dto: GoogleLoginDto) {
+    const profile = await verifyGoogleIdToken(
+      dto.idToken,
+      this.config.getOrThrow('GOOGLE_CLIENT_ID'),
+    );
+    return this.authService.validateOAuthLogin(profile);
+  }
+
   // --- Apple Sign-In ---
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @Post('oauth/apple')
   async appleLogin(@Body() dto: AppleLoginDto) {
-    const profile = await verifyAppleIdentityToken(
+    const profile = await verifyAppleIdToken(
       dto.identityToken,
       this.config.getOrThrow('APPLE_CLIENT_ID'),
     );
