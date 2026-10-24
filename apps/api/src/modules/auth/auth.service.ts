@@ -115,7 +115,7 @@ export class AuthService {
     return this.issueTokenPair(user.id, user.email);
   }
 
-  /** Refresh token rotasyonu: SHA-256 + timing-safe equal + atomik updateMany race condition koruması + token theft tespiti. */
+  /** Refresh token rotasyonu: kaydı bul, hash'i doğrula, süre ve kullanıcı aktifliğini kontrol et, revokedAt kontrolü ve atomik updateMany ile race condition / çalıntı token koruması. */
   async refreshTokens(rawRefreshToken: string): Promise<TokenPair> {
     const [id, secret] = (rawRefreshToken || '').split('.');
     if (!id || !secret) {
@@ -127,18 +127,11 @@ export class AuthService {
       include: { user: true },
     });
 
-    if (!tokenRecord) {
+    if (!tokenRecord || !tokenRecord.user) {
       throw new UnauthorizedException('Geçersiz veya süresi dolmuş refresh token');
     }
 
-    // Token Theft Detection: İptal edilmiş bir token tekrar kullanılırsa tüm oturumları sonlandır!
-    if (tokenRecord.revokedAt) {
-      await this.revokeAllSessions(tokenRecord.userId);
-      throw new UnauthorizedException(
-        'Şüpheli hareket tespit edildi: Kullanılmış token tekrar denendi, güvenlik nedeniyle tüm oturumlar kapatıldı.',
-      );
-    }
-
+    // 1. Hash ve süre doğrulaması
     const isExpired = tokenRecord.expiresAt <= new Date();
     const isSecretValid = this.safeEqualHex(tokenRecord.tokenHash, this.hashSecret(secret));
 
@@ -146,17 +139,28 @@ export class AuthService {
       throw new UnauthorizedException('Geçersiz veya süresi dolmuş refresh token');
     }
 
-    // Atomik rotasyon (Race condition koruması): updateMany ile revokedAt'in null olduğu doğrulanarak güncellenir.
-    const updateResult = await this.prisma.refreshToken.updateMany({
-      where: { id: tokenRecord.id, revokedAt: null },
+    // 2. Kullanıcı aktiflik kontrolü
+    if (!tokenRecord.user.isActive || tokenRecord.user.deletedAt) {
+      throw new UnauthorizedException('Geçersiz veya süresi dolmuş refresh token');
+    }
+
+    // 3. Token Theft Detection: revokedAt doluysa tüm oturumları iptal et ve hata ver (çalıntı token şüphesi)
+    if (tokenRecord.revokedAt) {
+      await this.revokeAllSessions(tokenRecord.userId);
+      throw new UnauthorizedException(
+        'Şüpheli hareket tespit edildi: Kullanılmış token tekrar denendi, tüm oturumlar kapatıldı.',
+      );
+    }
+
+    // 4. Atomik iptal / rotasyon
+    const { count } = await this.prisma.refreshToken.updateMany({
+      where: { id, revokedAt: null },
       data: { revokedAt: new Date() },
     });
 
-    if (updateResult.count === 0) {
+    if (count === 0) {
       await this.revokeAllSessions(tokenRecord.userId);
-      throw new UnauthorizedException(
-        'Şüpheli hareket tespit edildi: Aynı token eşzamanlı olarak tekrar kullanıldı, tüm oturumlar kapatıldı.',
-      );
+      throw new UnauthorizedException('Geçersiz veya süresi dolmuş refresh token');
     }
 
     return this.issueTokenPair(tokenRecord.user.id, tokenRecord.user.email);

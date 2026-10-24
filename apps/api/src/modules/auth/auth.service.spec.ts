@@ -160,7 +160,7 @@ describe('AuthService', () => {
         expiresAt: new Date(Date.now() + 1000000),
         revokedAt: new Date(),
         userId: 'user-1',
-        user: { id: 'user-1', email: 'test@ornek.com' },
+        user: { id: 'user-1', email: 'test@ornek.com', isActive: true, deletedAt: null },
       });
 
       await expect(service.refreshTokens(rawToken)).rejects.toThrow(UnauthorizedException);
@@ -180,7 +180,8 @@ describe('AuthService', () => {
         tokenHash,
         expiresAt: new Date(Date.now() + 1000000),
         revokedAt: null,
-        user: { id: 'user-1', email: 'test@ornek.com' },
+        userId: 'user-1',
+        user: { id: 'user-1', email: 'test@ornek.com', isActive: true, deletedAt: null },
       });
       prisma.refreshToken.updateMany.mockResolvedValue({ count: 1 });
       prisma.refreshToken.create.mockResolvedValue({ id: 'rt-2' });
