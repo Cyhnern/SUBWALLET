@@ -150,6 +150,10 @@ export class AuthService {
       }
     }
 
+    if (!user.isActive || user.deletedAt) {
+      throw new UnauthorizedException('Hesap devre dışı');
+    }
+
     return this.issueTokenPair(user.id, user.email);
   }
 

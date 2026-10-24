@@ -115,7 +115,13 @@ describe('AuthService', () => {
       prisma.user.findUnique
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce({ id: 'user-1', email: 'test@ornek.com', emailVerifiedAt: null });
-      prisma.user.update.mockResolvedValue({ id: 'user-1', email: 'test@ornek.com', emailVerifiedAt: new Date() });
+      prisma.user.update.mockResolvedValue({
+        id: 'user-1',
+        email: 'test@ornek.com',
+        emailVerifiedAt: new Date(),
+        isActive: true,
+        deletedAt: null,
+      });
       prisma.refreshToken.create.mockResolvedValue({ id: 'rt-2' });
 
       const result = await service.validateOAuthLogin({
