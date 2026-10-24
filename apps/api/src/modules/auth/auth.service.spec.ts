@@ -3,8 +3,13 @@ import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as argon2 from 'argon2';
+import * as crypto from 'crypto';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+
+function sha256(s: string) {
+  return crypto.createHash('sha256').update(s).digest('hex');
+}
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -106,8 +111,8 @@ describe('AuthService', () => {
   describe('validateOAuthLogin', () => {
     it('e-postası doğrulanmamış mevcut kullanıcıyla OAuth birleştirmeyi engeller', async () => {
       prisma.user.findUnique
-        .mockResolvedValueOnce(null) // oauthProvider_oauthProviderId
-        .mockResolvedValueOnce({ id: 'user-1', email: 'test@ornek.com', emailVerifiedAt: null }); // email lookup
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'user-1', email: 'test@ornek.com', emailVerifiedAt: null });
 
       await expect(
         service.validateOAuthLogin({
@@ -120,8 +125,8 @@ describe('AuthService', () => {
 
     it('e-postası doğrulanmış mevcut kullanıcıyla OAuth bilgilerini birleştirir', async () => {
       prisma.user.findUnique
-        .mockResolvedValueOnce(null) // oauthProvider_oauthProviderId
-        .mockResolvedValueOnce({ id: 'user-1', email: 'test@ornek.com', emailVerifiedAt: new Date() }); // email lookup
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'user-1', email: 'test@ornek.com', emailVerifiedAt: new Date() });
       prisma.user.update.mockResolvedValue({ id: 'user-1', email: 'test@ornek.com' });
       prisma.refreshToken.create.mockResolvedValue({ id: 'rt-1' });
 
@@ -144,9 +149,30 @@ describe('AuthService', () => {
       await expect(service.refreshTokens('gecersiz-token')).rejects.toThrow(UnauthorizedException);
     });
 
-    it('geçerli token bulunduğunda eskisini iptal edip yenisini döner (id.secret O(1) arama)', async () => {
+    it('iptal edilmiş token tekrar denendiğinde çalınma riski algılayıp tüm oturumları kapatır', async () => {
       const secret = 'secret-raw-token';
-      const tokenHash = await argon2.hash(secret);
+      const tokenHash = sha256(secret);
+      const rawToken = `rt-1.${secret}`;
+
+      prisma.refreshToken.findUnique.mockResolvedValue({
+        id: 'rt-1',
+        tokenHash,
+        expiresAt: new Date(Date.now() + 1000000),
+        revokedAt: new Date(),
+        userId: 'user-1',
+        user: { id: 'user-1', email: 'test@ornek.com' },
+      });
+
+      await expect(service.refreshTokens(rawToken)).rejects.toThrow(UnauthorizedException);
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', revokedAt: null },
+        data: expect.objectContaining({ revokedAt: expect.any(Date) }),
+      });
+    });
+
+    it('geçerli token bulunduğunda eskisini iptal edip yenisini döner (SHA-256 + O(1) id.secret arama)', async () => {
+      const secret = 'secret-raw-token';
+      const tokenHash = sha256(secret);
       const rawToken = `rt-1.${secret}`;
 
       prisma.refreshToken.findUnique.mockResolvedValue({

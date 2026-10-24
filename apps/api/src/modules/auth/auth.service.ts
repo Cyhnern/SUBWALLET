@@ -33,6 +33,17 @@ export class AuthService {
     private readonly config: ConfigService,
   ) {}
 
+  private hashSecret(s: string): string {
+    return crypto.createHash('sha256').update(s).digest('hex');
+  }
+
+  private safeEqualHex(a: string, b: string): boolean {
+    if (!a || !b) return false;
+    const x = Buffer.from(a, 'hex');
+    const y = Buffer.from(b, 'hex');
+    return x.length === y.length && crypto.timingSafeEqual(x, y);
+  }
+
   async register(dto: RegisterDto): Promise<TokenPair> {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existing) {
@@ -76,7 +87,6 @@ export class AuthService {
     });
 
     if (!user) {
-      // Aynı e-posta ile daha önce parolayla kayıt olunmuş olabilir — e-posta doğrulanmışsa birleştir.
       const existingUser = await this.prisma.user.findUnique({ where: { email: profile.email } });
       if (existingUser) {
         if (!existingUser.emailVerifiedAt) {
@@ -96,7 +106,7 @@ export class AuthService {
             avatarUrl: profile.avatarUrl,
             oauthProvider: profile.provider,
             oauthProviderId: profile.providerId,
-            emailVerifiedAt: new Date(), // OAuth sağlayıcısı doğrulanmış e-posta sundu
+            emailVerifiedAt: new Date(),
           },
         });
       }
@@ -105,7 +115,7 @@ export class AuthService {
     return this.issueTokenPair(user.id, user.email);
   }
 
-  /** Refresh token rotasyonu: id.secret formatı ile O(1) doğrudan tek sorgulu arama. */
+  /** Refresh token rotasyonu: SHA-256 + timing-safe equal + token theft tespiti. */
   async refreshTokens(rawRefreshToken: string): Promise<TokenPair> {
     const [id, secret] = (rawRefreshToken || '').split('.');
     if (!id || !secret) {
@@ -117,16 +127,26 @@ export class AuthService {
       include: { user: true },
     });
 
-    if (
-      !tokenRecord ||
-      tokenRecord.revokedAt ||
-      tokenRecord.expiresAt <= new Date() ||
-      !(await argon2.verify(tokenRecord.tokenHash, secret).catch(() => false))
-    ) {
+    if (!tokenRecord) {
       throw new UnauthorizedException('Geçersiz veya süresi dolmuş refresh token');
     }
 
-    // Rotasyon: eskisini iptal et, yenisini oluştur (token theft tespiti için).
+    // Token Theft Detection: İptal edilmiş bir token tekrar kullanılırsa tüm oturumları sonlandır!
+    if (tokenRecord.revokedAt) {
+      await this.revokeAllSessions(tokenRecord.userId);
+      throw new UnauthorizedException(
+        'Şüpheli hareket tespit edildi: Kullanılmış token tekrar denendi, güvenlik nedeniyle tüm oturumlar kapatıldı.',
+      );
+    }
+
+    const isExpired = tokenRecord.expiresAt <= new Date();
+    const isSecretValid = this.safeEqualHex(tokenRecord.tokenHash, this.hashSecret(secret));
+
+    if (isExpired || !isSecretValid) {
+      throw new UnauthorizedException('Geçersiz veya süresi dolmuş refresh token');
+    }
+
+    // Rotasyon: eskisini iptal et, yenisini oluştur
     await this.prisma.refreshToken.update({
       where: { id: tokenRecord.id },
       data: { revokedAt: new Date() },
@@ -146,7 +166,7 @@ export class AuthService {
     if (
       tokenRecord &&
       !tokenRecord.revokedAt &&
-      (await argon2.verify(tokenRecord.tokenHash, secret).catch(() => false))
+      this.safeEqualHex(tokenRecord.tokenHash, this.hashSecret(secret))
     ) {
       await this.prisma.refreshToken.update({
         where: { id: tokenRecord.id },
@@ -155,12 +175,23 @@ export class AuthService {
     }
   }
 
-  /** Kullanıcının tüm oturumlarını kapatır (ör. "diğer cihazlardan çıkış yap"). */
   async revokeAllSessions(userId: string): Promise<void> {
     await this.prisma.refreshToken.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+  }
+
+  async purgeExpiredTokens(): Promise<number> {
+    const result = await this.prisma.refreshToken.deleteMany({
+      where: {
+        OR: [
+          { expiresAt: { lt: new Date() } },
+          { revokedAt: { lt: addDays(new Date(), -7) } },
+        ],
+      },
+    });
+    return result.count;
   }
 
   private async issueTokenPair(userId: string, email: string): Promise<TokenPair> {
@@ -173,12 +204,13 @@ export class AuthService {
     );
 
     const secret = crypto.randomBytes(64).toString('hex');
+    const tokenHash = this.hashSecret(secret);
     const refreshDays = Number(this.config.get('JWT_REFRESH_EXPIRES_IN_DAYS', 30));
 
     const record = await this.prisma.refreshToken.create({
       data: {
         userId,
-        tokenHash: await argon2.hash(secret),
+        tokenHash,
         expiresAt: addDays(new Date(), refreshDays),
       },
     });
