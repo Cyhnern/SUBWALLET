@@ -15,9 +15,9 @@ export interface GoogleProfile {
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   constructor(config: ConfigService) {
     super({
-      clientID: config.get<string>('GOOGLE_CLIENT_ID') || 'mock_google_client_id',
-      clientSecret: config.get<string>('GOOGLE_CLIENT_SECRET') || 'mock_google_client_secret',
-      callbackURL: config.get<string>('GOOGLE_CALLBACK_URL') || 'http://localhost:3000/api/v1/auth/oauth/google/callback',
+      clientID: config.getOrThrow<string>('GOOGLE_CLIENT_ID'),
+      clientSecret: config.getOrThrow<string>('GOOGLE_CLIENT_SECRET'),
+      callbackURL: config.getOrThrow<string>('GOOGLE_CALLBACK_URL'),
       scope: ['email', 'profile'],
     });
   }
