@@ -41,25 +41,36 @@ export class ExchangeRatesService implements OnModuleInit {
     if (this.lastFetchTime > 0 && now - this.lastFetchTime < this.CACHE_TTL_MS) return;
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
       const response = await fetch('https://open.er-api.com/v6/latest/USD', {
-        signal: controller.signal,
+        signal: AbortSignal.timeout(5000),
       });
-      clearTimeout(timeoutId);
 
       if (response.ok) {
         const data = await response.json();
         if (data && data.rates) {
-          this.ratesCache = {
-            USD: 1.0,
-            TRY: data.rates.TRY ?? FALLBACK_USD_RATES.TRY,
-            EUR: data.rates.EUR ?? FALLBACK_USD_RATES.EUR,
-            GBP: data.rates.GBP ?? FALLBACK_USD_RATES.GBP,
-          };
-          this.lastFetchTime = now;
-          this.logger.log('Döviz kurları canlı API üzerinden güncellendi');
-          return;
+          const newRates: Record<string, number> = { USD: 1.0 };
+          let allValid = true;
+
+          for (const cur of SUPPORTED_CURRENCIES) {
+            if (cur === 'USD') continue;
+            const rate = data.rates[cur];
+            if (typeof rate !== 'number' || isNaN(rate) || rate <= 0) {
+              allValid = false;
+              break;
+            }
+            newRates[cur] = rate;
+          }
+
+          if (allValid) {
+            this.ratesCache = newRates;
+            this.lastFetchTime = now;
+            this.logger.log('Döviz kurları canlı API üzerinden güncellendi');
+            return;
+          } else {
+            this.logger.warn(
+              'Canlı API yanıtında geçersiz/eksik kur değerleri algılandı, kurlar değiştirilmedi',
+            );
+          }
         }
       }
     } catch (error) {
