@@ -6,6 +6,9 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
+import { addDays } from 'date-fns';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateSharedAccountDto } from './dto/create-shared-account.dto';
 import { InviteMemberDto } from './dto/invite-member.dto';
@@ -13,7 +16,10 @@ import { startOfUtcDay } from '../../common/date.util';
 
 @Injectable()
 export class SharedAccountsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   async create(ownerId: string, dto: CreateSharedAccountDto) {
     return this.prisma.sharedAccount.create({
@@ -49,24 +55,101 @@ export class SharedAccountsService {
     return account;
   }
 
+  /**
+   * E-posta numaralandırma (enumeration) saldırılarını önlemek için kullanıcı
+   * sistemde kayıtlı olsun olmasın aynı yanıtı ({ status: 'invited' }) döner.
+   */
   async inviteMember(sharedAccountId: string, dto: InviteMemberDto) {
-    const targetUser = await this.prisma.user.findFirst({
-      where: { email: dto.email, deletedAt: null },
+    const email = dto.email.trim().toLowerCase();
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = addDays(new Date(), 7);
+
+    // Upsert invite record
+    await this.prisma.sharedAccountInvite.upsert({
+      where: { sharedAccountId_email: { sharedAccountId, email } },
+      create: {
+        sharedAccountId,
+        email,
+        role: dto.role ?? 'member',
+        tokenHash,
+        expiresAt,
+      },
+      update: {
+        role: dto.role ?? 'member',
+        tokenHash,
+        expiresAt,
+        acceptedAt: null,
+      },
     });
-    if (!targetUser) {
-      throw new NotFoundException(
-        'Bu e-postayla kayıtlı bir kullanıcı bulunamadı.',
-      );
+
+    // Send invitation email via Resend if RESEND_API_KEY is configured
+    const apiKey = this.config.get<string>('RESEND_API_KEY');
+    const inviteLink = `subwallet://invite?token=${rawToken}`;
+
+    if (apiKey) {
+      try {
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            from: 'SubWallet <noreply@subwallet.app>',
+            to: [email],
+            subject: 'SubWallet Ortak Hesap Daveti',
+            html: `<p>Bir ortak hesaba davet edildiniz. Katılmak için bağlantıya tıklayın: <a href="${inviteLink}">Daveti Kabul Et</a></p>`,
+          }),
+        });
+      } catch (err) {
+        console.error(`Davet e-postası gönderilemedi: ${err}`);
+      }
+    } else {
+      console.log(`[Resend Mock Email] To: ${email}, Link: ${inviteLink}`);
     }
 
-    const existing = await this.prisma.sharedAccountMember.findUnique({
-      where: { sharedAccountId_userId: { sharedAccountId, userId: targetUser.id } },
-    });
-    if (existing) throw new ConflictException('Kullanıcı zaten bu ortak hesabın üyesi');
+    return { status: 'invited', message: 'Eğer bu e-posta sistemde kayıtlıysa davet gönderildi' };
+  }
 
-    return this.prisma.sharedAccountMember.create({
-      data: { sharedAccountId, userId: targetUser.id, role: dto.role ?? 'member' },
-      include: { user: { select: { id: true, fullName: true, email: true } } },
+  async acceptInvite(token: string, userId: string, userEmail: string) {
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const invite = await this.prisma.sharedAccountInvite.findUnique({
+      where: { tokenHash },
+    });
+
+    if (!invite || invite.expiresAt < new Date() || invite.acceptedAt) {
+      throw new BadRequestException('Geçersiz veya süresi dolmuş davet bağlantısı');
+    }
+
+    if (invite.email !== userEmail.trim().toLowerCase()) {
+      throw new ForbiddenException('Bu davet başka bir e-posta adresine gönderilmiş');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Üyeliği ekle (zaten üyeyse atla)
+      await tx.sharedAccountMember.upsert({
+        where: {
+          sharedAccountId_userId: {
+            sharedAccountId: invite.sharedAccountId,
+            userId,
+          },
+        },
+        create: {
+          sharedAccountId: invite.sharedAccountId,
+          userId,
+          role: invite.role,
+        },
+        update: {},
+      });
+
+      // 2. Daveti kabul edildi olarak işaretle
+      await tx.sharedAccountInvite.update({
+        where: { id: invite.id },
+        data: { acceptedAt: new Date() },
+      });
+
+      return { message: 'Ortak hesap daveti başarıyla kabul edildi', sharedAccountId: invite.sharedAccountId };
     });
   }
 
@@ -148,7 +231,6 @@ export class SharedAccountsService {
     const billingPeriodStart = startOfUtcDay(new Date(rawBillingPeriodStart));
     const account = await this.findOneOrFail(sharedAccountId);
 
-    // Üyeleri joinedAt: 'asc' ile sabit sırada al
     const sortedMembers = [...account.members].sort(
       (a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime(),
     );
@@ -165,7 +247,6 @@ export class SharedAccountsService {
 
         const splits = this.computeSplitsForSubscription(Number(sub.price), memberIds);
 
-        // 1. Eksik kayıtlar için createMany ({ skipDuplicates: true })
         await tx.costSplit.createMany({
           data: splits.map((s) => ({
             subscriptionId: sub.id,
@@ -177,7 +258,6 @@ export class SharedAccountsService {
           skipDuplicates: true,
         });
 
-        // 2. Ödenmemiş (isSettled: false) kayıtları güncelle (atomik koruma)
         for (const split of splits) {
           await tx.costSplit.updateMany({
             where: {

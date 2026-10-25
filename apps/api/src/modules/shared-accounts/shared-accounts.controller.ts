@@ -38,6 +38,14 @@ export class SharedAccountsController {
     return this.service.findAllForUser(user.id);
   }
 
+  @Post('invites/accept')
+  acceptInvite(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body('token') token: string,
+  ) {
+    return this.service.acceptInvite(token, user.id, user.email);
+  }
+
   @Get(':id')
   @UseGuards(SharedAccountRoleGuard)
   findOne(@Param('id') id: string) {

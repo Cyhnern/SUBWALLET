@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { SharedAccountsService } from './shared-accounts.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
@@ -12,6 +13,7 @@ describe('SharedAccountsService', () => {
       sharedAccount: { create: jest.fn(), findMany: jest.fn(), findUnique: jest.fn() },
       user: { findFirst: jest.fn() },
       sharedAccountMember: { create: jest.fn(), findUnique: jest.fn(), delete: jest.fn() },
+      sharedAccountInvite: { upsert: jest.fn() },
       costSplit: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn(), findMany: jest.fn(), createMany: jest.fn(), updateMany: jest.fn() },
       $transaction: jest.fn((cb: any) => cb(prisma)),
     };
@@ -20,6 +22,7 @@ describe('SharedAccountsService', () => {
       providers: [
         SharedAccountsService,
         { provide: PrismaService, useValue: prisma },
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(null) } },
       ],
     }).compile();
 
@@ -35,20 +38,14 @@ describe('SharedAccountsService', () => {
   });
 
   describe('inviteMember', () => {
-    it('kayıtlı olmayan e-postada NotFoundException fırlatır', async () => {
-      prisma.user.findFirst.mockResolvedValue(null);
-      await expect(
-        service.inviteMember('sa-1', { email: 'yok@ornek.com' }),
-      ).rejects.toThrow(NotFoundException);
-    });
+    it('güvenli davet akışı için enum/status döner ve e-posta numaralandırmayı önler', async () => {
+      prisma.sharedAccountInvite.upsert.mockResolvedValue({ id: 'inv-1' });
 
-    it('zaten üye olan kullanıcıda ConflictException fırlatır', async () => {
-      prisma.user.findFirst.mockResolvedValue({ id: 'user-2' });
-      prisma.sharedAccountMember.findUnique.mockResolvedValue({ id: 'm-1' });
-
-      await expect(
-        service.inviteMember('sa-1', { email: 'uye@ornek.com' }),
-      ).rejects.toThrow(ConflictException);
+      const result = await service.inviteMember('sa-1', { email: 'arkadas@ornek.com' });
+      expect(result).toEqual({
+        status: 'invited',
+        message: 'Eğer bu e-posta sistemde kayıtlıysa davet gönderildi',
+      });
     });
   });
 
