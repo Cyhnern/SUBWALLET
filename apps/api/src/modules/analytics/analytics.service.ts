@@ -22,93 +22,112 @@ export class AnalyticsService {
   ) {}
 
   /**
-   * Kullanıcının tüm aktif aboneliklerini (kişisel + ortak hesap payları)
-   * kullanıcının baseCurrency'sine anlık kurlar üzerinden çevirerek harcamayı hesaplar.
+   * Tek kaynak (Single Source of Truth): Kullanıcının kişisel aktif abonelikleri
+   * artı üyesi olduğu ortak hesapların aktif abonelikleri (üye sayısına bölünmüş payları)
+   * üzerinden anlık döviz kuru dönüşümlü aylık harcama paylarını hesaplar.
    */
-  async calculateBurnRate(userId: string): Promise<BurnRateResult> {
+  private async monthlyShares(userId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const targetCurrency = user.baseCurrency || 'TRY';
 
     const personalSubs = await this.prisma.subscription.findMany({
       where: { userId, status: 'active', deletedAt: null, sharedAccountId: null },
+      include: { category: true },
     });
 
-    const sharedSplits = await this.prisma.costSplit.findMany({
-      where: { userId, subscription: { status: 'active', deletedAt: null } },
-      include: { subscription: true },
-      distinct: ['subscriptionId'],
-      orderBy: { billingPeriodStart: 'desc' },
+    const sharedSubs = await this.prisma.subscription.findMany({
+      where: {
+        status: 'active',
+        deletedAt: null,
+        sharedAccountId: { not: null },
+        sharedAccount: { members: { some: { userId } } },
+      },
+      include: {
+        category: true,
+        sharedAccount: { include: { members: true } },
+      },
     });
 
-    let monthlyTotal = 0;
+    const items: Array<{
+      subId: string;
+      categoryId: string | null;
+      categoryName: string;
+      colorHex: string | null;
+      monthlyConverted: number;
+    }> = [];
+
     for (const sub of personalSubs) {
       try {
         const monthlyInSubCurrency = normalizeToMonthly(Number(sub.price), sub.billingCycle, sub.customCycleDays);
         const convertedMonthly = this.exchangeRates.convert(monthlyInSubCurrency, sub.currency, targetCurrency);
-        monthlyTotal += convertedMonthly;
+        items.push({
+          subId: sub.id,
+          categoryId: sub.categoryId,
+          categoryName: sub.category?.name ?? 'Kategorisiz',
+          colorHex: sub.category?.colorHex ?? null,
+          monthlyConverted: convertedMonthly,
+        });
       } catch (err) {
-        this.logger.warn(`Bozuk para birimli abonelik atlandı (subId=${sub.id}): ${err}`);
+        this.logger.warn(`Bozuk para birimli kişisel abonelik atlandı (subId=${sub.id}): ${err}`);
       }
     }
-    for (const split of sharedSplits) {
+
+    for (const sub of sharedSubs) {
       try {
-        const monthlyInSubCurrency = normalizeToMonthly(
-          Number(split.computedAmount),
-          split.subscription.billingCycle,
-          split.subscription.customCycleDays,
-        );
-        const convertedMonthly = this.exchangeRates.convert(
-          monthlyInSubCurrency,
-          split.subscription.currency,
-          targetCurrency,
-        );
-        monthlyTotal += convertedMonthly;
+        const memberCount = sub.sharedAccount?.members?.length ?? 1;
+        if (memberCount === 0) continue;
+
+        const monthlyInSubCurrency = normalizeToMonthly(Number(sub.price), sub.billingCycle, sub.customCycleDays);
+        const fullConverted = this.exchangeRates.convert(monthlyInSubCurrency, sub.currency, targetCurrency);
+        const userShare = Math.round((fullConverted / memberCount) * 100) / 100;
+
+        items.push({
+          subId: sub.id,
+          categoryId: sub.categoryId,
+          categoryName: sub.category?.name ?? 'Kategorisiz',
+          colorHex: sub.category?.colorHex ?? null,
+          monthlyConverted: userShare,
+        });
       } catch (err) {
-        this.logger.warn(`Bozuk para birimli ortak pay atlandı (splitId=${split.id}): ${err}`);
+        this.logger.warn(`Bozuk para birimli ortak abonelik atlandı (subId=${sub.id}): ${err}`);
       }
     }
+
+    return { targetCurrency, items };
+  }
+
+  async calculateBurnRate(userId: string): Promise<BurnRateResult> {
+    const { targetCurrency, items } = await this.monthlyShares(userId);
+    const monthlyTotal = items.reduce((sum, i) => sum + i.monthlyConverted, 0);
 
     return {
       monthlyTotal: Math.round(monthlyTotal * 100) / 100,
       yearlyTotal: Math.round(monthlyTotal * 12 * 100) / 100,
       currency: targetCurrency,
-      subscriptionCount: personalSubs.length + sharedSplits.length,
+      subscriptionCount: items.length,
       exchangeRateStatus: this.exchangeRates.getStatus(),
     };
   }
 
   async spendingByCategory(userId: string) {
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
-    const targetCurrency = user.baseCurrency || 'TRY';
-
-    const subs = await this.prisma.subscription.findMany({
-      where: { userId, status: 'active', deletedAt: null },
-      include: { category: true },
-    });
+    const { items } = await this.monthlyShares(userId);
 
     const grouped = new Map<
       string,
       { categoryName: string; monthlyTotal: number; colorHex: string | null }
     >();
-    for (const sub of subs) {
-      try {
-        const key = sub.categoryId ?? 'uncategorized';
-        const name = sub.category?.name ?? 'Kategorisiz';
-        const monthlyInSubCurrency = normalizeToMonthly(Number(sub.price), sub.billingCycle, sub.customCycleDays);
-        const monthly = this.exchangeRates.convert(monthlyInSubCurrency, sub.currency, targetCurrency);
 
-        const existing = grouped.get(key);
-        if (existing) {
-          existing.monthlyTotal += monthly;
-        } else {
-          grouped.set(key, {
-            categoryName: name,
-            monthlyTotal: monthly,
-            colorHex: sub.category?.colorHex ?? null,
-          });
-        }
-      } catch (err) {
-        this.logger.warn(`Bozuk para birimli abonelik atlandı (subId=${sub.id}): ${err}`);
+    for (const item of items) {
+      const key = item.categoryId ?? 'uncategorized';
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.monthlyTotal += item.monthlyConverted;
+      } else {
+        grouped.set(key, {
+          categoryName: item.categoryName,
+          monthlyTotal: item.monthlyConverted,
+          colorHex: item.colorHex,
+        });
       }
     }
 
@@ -118,10 +137,38 @@ export class AnalyticsService {
     }));
     const grandTotal = rows.reduce((sum, r) => sum + r.monthlyTotal, 0);
 
-    return rows
-      .map((v) => ({
+    if (grandTotal === 0) {
+      return rows.map((v) => ({ ...v, sharePercent: 0 })).sort((a, b) => b.monthlyTotal - a.monthlyTotal);
+    }
+
+    // En Büyük Kalan Yöntemi (Largest Remainder Method) ile %100 toplam garantisi
+    const rawShares = rows.map((v) => {
+      const exact = (v.monthlyTotal / grandTotal) * 100;
+      const floored = Math.floor(exact);
+      return {
         ...v,
-        sharePercent: grandTotal === 0 ? 0 : Math.round((v.monthlyTotal / grandTotal) * 100),
+        exact,
+        floored,
+        remainder: exact - floored,
+      };
+    });
+
+    const totalFloored = rawShares.reduce((sum, s) => sum + s.floored, 0);
+    const diff = 100 - totalFloored;
+
+    rawShares.sort((a, b) => b.remainder - a.remainder);
+    for (let i = 0; i < Math.max(0, diff); i++) {
+      if (rawShares[i]) {
+        rawShares[i].floored += 1;
+      }
+    }
+
+    return rawShares
+      .map((v) => ({
+        categoryName: v.categoryName,
+        monthlyTotal: v.monthlyTotal,
+        colorHex: v.colorHex,
+        sharePercent: v.floored,
       }))
       .sort((a, b) => b.monthlyTotal - a.monthlyTotal);
   }
