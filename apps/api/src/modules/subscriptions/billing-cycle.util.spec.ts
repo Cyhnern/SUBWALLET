@@ -1,4 +1,4 @@
-import { calculateNextBillingDate, normalizeToMonthly } from './billing-cycle.util';
+import { calculateNextBillingDate, normalizeToMonthly, addCycles, nextBillingDateOnOrAfter } from './billing-cycle.util';
 
 describe('calculateNextBillingDate', () => {
   it('haftalık döngüde 7 gün ekler', () => {
@@ -18,7 +18,6 @@ describe('calculateNextBillingDate', () => {
 
   it('ay sonu kenar durumunu doğru yönetir (31 Ocak + 1 ay = 28 Şubat)', () => {
     const result = calculateNextBillingDate(new Date('2026-01-31'), 'monthly');
-    // 2026 artık yıl değil, bu yüzden Şubat 28 çeker.
     expect(result.toISOString().slice(0, 10)).toBe('2026-02-28');
   });
 
@@ -37,9 +36,24 @@ describe('calculateNextBillingDate', () => {
   });
 });
 
+describe('nextBillingDateOnOrAfter & addCycles', () => {
+  it('anchor tarihinden (31 Ocak) hesaplama yaparak tarih kaymasını önler (31 Oca -> 28 Şub -> 31 Mar -> 30 Nis)', () => {
+    const anchor = new Date('2026-01-31');
+    expect(addCycles(anchor, 'monthly', null, 1).toISOString().slice(0, 10)).toBe('2026-02-28');
+    expect(addCycles(anchor, 'monthly', null, 2).toISOString().slice(0, 10)).toBe('2026-03-31');
+    expect(addCycles(anchor, 'monthly', null, 3).toISOString().slice(0, 10)).toBe('2026-04-30');
+  });
+
+  it('nextBillingDateOnOrAfter hedef tarihten sonraki ilk fatura tarihini bulur', () => {
+    const anchor = new Date('2026-01-31');
+    const target = new Date('2026-03-01');
+    const result = nextBillingDateOnOrAfter(anchor, 'monthly', null, target);
+    expect(result.toISOString().slice(0, 10)).toBe('2026-03-31');
+  });
+});
+
 describe('normalizeToMonthly', () => {
   it('haftalık fiyatı doğru aylık değere çevirir', () => {
-    // 10 * 52/12 ≈ 43.33
     expect(normalizeToMonthly(10, 'weekly')).toBeCloseTo(43.33, 1);
   });
 
@@ -56,7 +70,6 @@ describe('normalizeToMonthly', () => {
   });
 
   it('custom döngüde 30 güne oranlar', () => {
-    // 90 günlük 90 TL'lik abonelik -> günde 1 TL -> ayda 30 TL
     expect(normalizeToMonthly(90, 'custom', 90)).toBe(30);
   });
 });

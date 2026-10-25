@@ -1,33 +1,50 @@
 import { addDays, addMonths, addYears } from 'date-fns';
 import { BillingCycle } from '@prisma/client';
 
-/**
- * Bir sonraki fatura tarihini hesaplar. Ay sonu kenar durumları
- * (ör. 31 Ocak + 1 ay) date-fns tarafından otomatik olarak en yakın
- * geçerli tarihe (28/29 Şubat) indirgenir.
- */
+export function addCycles(
+  anchor: Date,
+  cycle: BillingCycle,
+  customDays: number | null | undefined,
+  n: number,
+): Date {
+  switch (cycle) {
+    case 'weekly':
+      return addDays(anchor, 7 * n);
+    case 'monthly':
+      return addMonths(anchor, n);
+    case 'quarterly':
+      return addMonths(anchor, 3 * n);
+    case 'yearly':
+      return addYears(anchor, n);
+    case 'custom':
+      if (!customDays || customDays <= 0) {
+        throw new Error('custom_cycle_days pozitif olmalı');
+      }
+      return addDays(anchor, customDays * n);
+    default:
+      throw new Error(`Bilinmeyen fatura döngüsü: ${cycle}`);
+  }
+}
+
+export function nextBillingDateOnOrAfter(
+  anchor: Date,
+  cycle: BillingCycle,
+  customDays: number | null | undefined,
+  after: Date,
+): Date {
+  for (let n = 1; n <= 5000; n++) {
+    const d = addCycles(anchor, cycle, customDays, n);
+    if (d >= after) return d;
+  }
+  throw new Error('Fatura tarihi hesaplanamadı');
+}
+
 export function calculateNextBillingDate(
   fromDate: Date,
   cycle: BillingCycle,
   customCycleDays?: number | null,
 ): Date {
-  switch (cycle) {
-    case 'weekly':
-      return addDays(fromDate, 7);
-    case 'monthly':
-      return addMonths(fromDate, 1);
-    case 'quarterly':
-      return addMonths(fromDate, 3);
-    case 'yearly':
-      return addYears(fromDate, 1);
-    case 'custom':
-      if (!customCycleDays || customCycleDays <= 0) {
-        throw new Error('custom_cycle_days pozitif bir değer olmalı');
-      }
-      return addDays(fromDate, customCycleDays);
-    default:
-      throw new Error(`Bilinmeyen fatura döngüsü: ${cycle}`);
-  }
+  return addCycles(fromDate, cycle, customCycleDays, 1);
 }
 
 const MONTHLY_MULTIPLIER: Partial<Record<BillingCycle, number>> = {
@@ -37,7 +54,6 @@ const MONTHLY_MULTIPLIER: Partial<Record<BillingCycle, number>> = {
   yearly: 1 / 12,
 };
 
-/** Herhangi bir fatura döngüsündeki fiyatı aylık normalize eder (burn rate hesaplaması için). */
 export function normalizeToMonthly(
   price: number,
   cycle: BillingCycle,
