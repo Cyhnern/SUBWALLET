@@ -10,6 +10,11 @@ const FALLBACK_USD_RATES: Record<string, number> = {
   GBP: 0.765,
 };
 
+export interface ExchangeRateStatus {
+  source: 'live' | 'fallback';
+  asOf: Date | null;
+}
+
 @Injectable()
 export class ExchangeRatesService implements OnModuleInit {
   private readonly logger = new Logger(ExchangeRatesService.name);
@@ -24,6 +29,13 @@ export class ExchangeRatesService implements OnModuleInit {
   @Cron(CronExpression.EVERY_HOUR)
   async handleCronRefresh() {
     await this.refreshRatesIfStale();
+  }
+
+  getStatus(): ExchangeRateStatus {
+    return {
+      source: this.lastFetchTime > 0 ? 'live' : 'fallback',
+      asOf: this.lastFetchTime > 0 ? new Date(this.lastFetchTime) : null,
+    };
   }
 
   private validateCurrency(currency: string): string {

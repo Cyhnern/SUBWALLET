@@ -2,13 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { startOfUtcDay, utcHorizonEnd } from '../../common/date.util';
 import { normalizeToMonthly } from '../subscriptions/billing-cycle.util';
-import { ExchangeRatesService } from './exchange-rates.service';
+import { ExchangeRatesService, ExchangeRateStatus } from './exchange-rates.service';
 
 export interface BurnRateResult {
   monthlyTotal: number;
   yearlyTotal: number;
   currency: string;
   subscriptionCount: number;
+  exchangeRateStatus: ExchangeRateStatus;
 }
 
 @Injectable()
@@ -72,6 +73,7 @@ export class AnalyticsService {
       yearlyTotal: Math.round(monthlyTotal * 12 * 100) / 100,
       currency: targetCurrency,
       subscriptionCount: personalSubs.length + sharedSplits.length,
+      exchangeRateStatus: this.exchangeRates.getStatus(),
     };
   }
 
