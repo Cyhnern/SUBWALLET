@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { differenceInCalendarDays, isPast, subDays } from 'date-fns';
 import { Subscription } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -35,16 +34,12 @@ export class ZombieDetectorService {
     let score = 0;
     const reasons: string[] = [];
 
-    // Sinyal 1 (%40): uzun süredir kullanılmadı ya da hiç işaretlenmedi
-    if (!sub.lastUsedAt) {
+    // Sinyal 1 (%40): uzun süredir kullanılmadı veya başlangıç tarihinden beri kullanılmıyor
+    const referenceDate = sub.lastUsedAt ?? sub.startDate;
+    const daysSinceUse = differenceInCalendarDays(new Date(), referenceDate);
+    if (daysSinceUse >= INACTIVITY_DAYS) {
       score += 40;
-      reasons.push('Henüz hiç kullanılmadı veya işaretlenmedi');
-    } else {
-      const daysSinceUse = differenceInCalendarDays(new Date(), sub.lastUsedAt);
-      if (daysSinceUse >= INACTIVITY_DAYS) {
-        score += 40;
-        reasons.push(`${INACTIVITY_DAYS}+ gündür kullanılmadı`);
-      }
+      reasons.push(`${INACTIVITY_DAYS}+ gündür kullanılmadı`);
     }
 
     // Sinyal 2 (%25): son 90 günde fiyat %20+ arttı
@@ -117,32 +112,61 @@ export class ZombieDetectorService {
     return scores.filter((s) => s.isZombie);
   }
 
-  @Cron('0 8 * * 1', { timeZone: 'UTC' })
   async scanAllAndNotify(): Promise<{ scanned: number; flagged: number }> {
-    const activeSubs = await this.prisma.subscription.findMany({
-      where: { status: 'active', deletedAt: null },
-      include: { user: { include: { notificationPreference: true } }, serviceProvider: true },
-    });
-
+    let scanned = 0;
     let flagged = 0;
-    for (const sub of activeSubs) {
-      const result = await this.scoreSubscription(sub);
-      if (!result.isZombie) continue;
+    const batchSize = 200;
+    let cursor: { id: string } | undefined = undefined;
 
-      const alertsEnabled = sub.user.notificationPreference?.zombieAlertsEnabled ?? true;
-      if (!alertsEnabled) continue;
+    const thirtyDaysAgo = subDays(new Date(), 30);
 
-      await this.notifications.send({
-        userId: sub.userId,
-        channels: sub.user.notificationPreference?.channels ?? ['push'],
-        type: 'zombie_detected',
-        subscriptionId: sub.id,
-        payload: { reasons: result.reasons, score: result.score },
-      });
-      flagged++;
+    while (true) {
+      const subs: Array<Subscription & { user: { notificationPreference: any } | null; serviceProvider: any }> =
+        await this.prisma.subscription.findMany({
+          take: batchSize,
+          ...(cursor ? { skip: 1, cursor } : {}),
+          where: { status: 'active', deletedAt: null },
+          include: { user: { include: { notificationPreference: true } }, serviceProvider: true },
+          orderBy: { id: 'asc' },
+        });
+
+      if (subs.length === 0) break;
+
+      for (const sub of subs) {
+        scanned++;
+        const result = await this.scoreSubscription(sub);
+        if (!result.isZombie) continue;
+
+        const alertsEnabled = sub.user?.notificationPreference?.zombieAlertsEnabled ?? true;
+        if (!alertsEnabled) continue;
+
+        // notificationLog kontrolü: son 30 günde bu abonelik için zombie_detected bildirimi gönderildi mi?
+        const recentLog = await this.prisma.notificationLog.findFirst({
+          where: {
+            userId: sub.userId,
+            subscriptionId: sub.id,
+            type: 'zombie_detected',
+            sentAt: { gte: thirtyDaysAgo },
+          },
+        });
+
+        if (recentLog) continue; // son 30 günde bildirilmişse atla
+
+        await this.notifications.send({
+          userId: sub.userId,
+          channels: sub.user?.notificationPreference?.channels ?? ['push'],
+          type: 'zombie_detected',
+          subscriptionId: sub.id,
+          payload: { reasons: result.reasons, score: result.score },
+        });
+        flagged++;
+      }
+
+      cursor = { id: subs[subs.length - 1].id };
+      if (subs.length < batchSize) break;
     }
 
-    this.logger.log(`Zombi taraması tamamlandı: ${activeSubs.length} tarandı, ${flagged} işaretlendi`);
-    return { scanned: activeSubs.length, flagged };
+    this.logger.log(`Zombi taraması tamamlandı: ${scanned} tarandı, ${flagged} işaretlendi`);
+    return { scanned, flagged };
   }
 }

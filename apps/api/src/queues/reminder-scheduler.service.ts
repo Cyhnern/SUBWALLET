@@ -1,10 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { differenceInCalendarDays } from 'date-fns';
 import { SubscriptionsService } from '../modules/subscriptions/subscriptions.service';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { NotificationsService } from '../modules/notifications/notifications.service';
 import { nextBillingDateOnOrAfter } from '../modules/subscriptions/billing-cycle.util';
 import { startOfUtcDay } from '../common/date.util';
 
@@ -17,16 +17,35 @@ export interface RenewalReminderJobData {
 const REMINDER_HORIZON_DAYS = 30;
 
 @Injectable()
-export class ReminderSchedulerService {
+export class ReminderSchedulerService implements OnModuleInit {
   private readonly logger = new Logger(ReminderSchedulerService.name);
 
   constructor(
-    @InjectQueue('reminders') private readonly queue: Queue<RenewalReminderJobData>,
+    @InjectQueue('reminders') private readonly queue: Queue<any>,
     private readonly subscriptionsService: SubscriptionsService,
     private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
   ) {}
 
-  @Cron(CronExpression.EVERY_DAY_AT_7AM, { timeZone: 'UTC' })
+  async onModuleInit() {
+    await this.queue.upsertJobScheduler(
+      'scan-renewals-scheduler',
+      { pattern: '0 7 * * *', tz: 'UTC' },
+      { name: 'scan-renewals' },
+    );
+    await this.queue.upsertJobScheduler(
+      'advance-billing-scheduler',
+      { pattern: '0 0 * * *', tz: 'UTC' },
+      { name: 'advance-billing' },
+    );
+    await this.queue.upsertJobScheduler(
+      'zombie-scan-scheduler',
+      { pattern: '0 8 * * 1', tz: 'UTC' },
+      { name: 'zombie-scan' },
+    );
+    this.logger.log('BullMQ Job Schedulers başarıyla kaydedildi');
+  }
+
   async scheduleUpcomingReminders() {
     const candidates = await this.subscriptionsService.findRenewingWithin(REMINDER_HORIZON_DAYS);
     this.logger.log(`${candidates.length} abonelik yenileme penceresinde tarandı`);
@@ -55,13 +74,35 @@ export class ReminderSchedulerService {
     this.logger.log(`${queued} hatırlatıcı iş kuyruğa eklendi`);
   }
 
-  // Her gün gece yarısı 00:00 UTC'de çalışır: yenileme tarihi geçmiş aktif aboneliklerin nextBillingDate değerini
-  // anchor (startDate) üzerinden ilerletir ve deneme süresi biten abonelikleri trial -> active duruma geçirir.
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT, { timeZone: 'UTC' })
+  async sendReminder(data: RenewalReminderJobData) {
+    const { subscriptionId, userId, daysUntil } = data;
+
+    const sub = await this.prisma.subscription.findUnique({
+      where: { id: subscriptionId },
+      include: { serviceProvider: true, user: { include: { notificationPreference: true } } },
+    });
+    if (!sub || sub.deletedAt) {
+      this.logger.warn(`Abonelik bulunamadı/silinmiş, iş atlanıyor: ${subscriptionId}`);
+      return;
+    }
+
+    const serviceName = sub.serviceProvider?.name ?? sub.customName ?? 'Aboneliğiniz';
+    const channels = sub.user.notificationPreference?.channels ?? ['push'];
+
+    await this.notifications.send({
+      userId,
+      channels,
+      type: 'renewal_reminder',
+      subscriptionId,
+      payload: { serviceName, price: sub.price.toString(), currency: sub.currency, daysUntil },
+    });
+
+    this.logger.log(`Hatırlatıcı gönderildi: kullanıcı=${userId} abonelik=${subscriptionId}`);
+  }
+
   async advanceOverdueBillingDates() {
     const today = startOfUtcDay();
 
-    // 1. Gecikmiş aktif aboneliklerin fatura tarihlerini anchor (startDate) üzerinden ilerlet
     const overdueSubs = await this.prisma.subscription.findMany({
       where: {
         status: 'active',
@@ -92,7 +133,6 @@ export class ReminderSchedulerService {
     }
     this.logger.log(`${count} adet gecikmiş aktif abonelik ilerletildi, ${errorCount} hata alındı`);
 
-    // 2. Deneme süresi (trial) biten abonelikleri trial -> active duruma geçir, geçmişe kaydet ve fatura tarihini hesapla
     const expiredTrials = await this.prisma.subscription.findMany({
       where: {
         status: 'trial',

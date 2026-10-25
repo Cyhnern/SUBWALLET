@@ -11,6 +11,7 @@ const baseSubscription = {
   categoryId: null,
   trialEndDate: null,
   lastUsedAt: null,
+  startDate: new Date(),
   customName: 'Netflix',
 };
 
@@ -40,7 +41,8 @@ describe('ZombieDetectorService', () => {
   it('hiçbir sinyal yoksa skor 0 ve zombi değil olarak döner', async () => {
     const result = await service.scoreSubscription({
       ...baseSubscription,
-      lastUsedAt: new Date(), // az önce kullanılmış
+      lastUsedAt: new Date(),
+      startDate: new Date(),
     } as any);
 
     expect(result.score).toBe(0);
@@ -52,32 +54,35 @@ describe('ZombieDetectorService', () => {
     const result = await service.scoreSubscription({
       ...baseSubscription,
       lastUsedAt: subDays(new Date(), 45),
+      startDate: subDays(new Date(), 60),
     } as any);
 
     expect(result.score).toBe(40);
-    expect(result.isZombie).toBe(false); // eşik 50, tek sinyal yetmiyor
+    expect(result.isZombie).toBe(false);
     expect(result.reasons).toContain('30+ gündür kullanılmadı');
   });
 
   it('kullanılmama + fiyat artışı birlikte eşiği aşıp zombi olarak işaretler', async () => {
     prisma.subscriptionHistory.findMany.mockResolvedValue([
-      { oldValue: '10', newValue: '13' }, // %30 artış
+      { oldValue: '10', newValue: '13' },
     ]);
 
     const result = await service.scoreSubscription({
       ...baseSubscription,
       lastUsedAt: subDays(new Date(), 60),
+      startDate: subDays(new Date(), 90),
     } as any);
 
-    expect(result.score).toBe(65); // 40 + 25
+    expect(result.score).toBe(65);
     expect(result.isZombie).toBe(true);
     expect(result.reasons).toHaveLength(2);
   });
 
-  it('hiç kullanılmamış (lastUsedAt null) abonelik de inaktiflik sinyali alır', async () => {
+  it('hiç kullanılmamış (lastUsedAt null) ve startDate üzerinden 30+ gün geçmiş abonelik inaktiflik sinyali alır', async () => {
     const result = await service.scoreSubscription({
       ...baseSubscription,
       lastUsedAt: null,
+      startDate: subDays(new Date(), 35),
     } as any);
 
     expect(result.score).toBeGreaterThanOrEqual(40);
@@ -87,6 +92,7 @@ describe('ZombieDetectorService', () => {
     const result = await service.scoreSubscription({
       ...baseSubscription,
       lastUsedAt: new Date(),
+      startDate: new Date(),
       trialEndDate: subDays(new Date(), 5),
       status: 'active',
     } as any);
@@ -102,6 +108,7 @@ describe('ZombieDetectorService', () => {
       ...baseSubscription,
       categoryId: 'cat-muzik',
       lastUsedAt: new Date(),
+      startDate: new Date(),
     } as any);
 
     expect(result.score).toBe(20);
