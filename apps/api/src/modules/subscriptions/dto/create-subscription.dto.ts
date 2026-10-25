@@ -9,6 +9,8 @@ import {
   IsInt,
   IsDateString,
   Length,
+  MaxLength,
+  IsUrl,
   ValidateIf,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
@@ -74,10 +76,12 @@ export class CreateSubscriptionDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   notes?: string;
 
-  @ApiPropertyOptional({ description: 'Fatura veya makbuz görseli URL / data URI' })
+  @ApiPropertyOptional({ description: 'Fatura veya makbuz görseli güvenli HTTPS URL' })
   @IsOptional()
-  @IsString()
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @MaxLength(2048)
   invoiceUrl?: string;
 }

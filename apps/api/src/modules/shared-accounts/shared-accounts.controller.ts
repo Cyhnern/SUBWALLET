@@ -9,6 +9,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -37,8 +38,6 @@ export class SharedAccountsController {
     return this.service.findAllForUser(user.id);
   }
 
-  // Aşağıdaki uç noktaların tümü SharedAccountRoleGuard'dan geçer: `:id` parametresi
-  // üzerinden çağıranın üyeliği (ve gerekiyorsa rolü) doğrulanır.
   @Get(':id')
   @UseGuards(SharedAccountRoleGuard)
   findOne(@Param('id') id: string) {
@@ -56,8 +55,29 @@ export class SharedAccountsController {
   @Roles('owner', 'admin')
   @UseGuards(SharedAccountRoleGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
-  removeMember(@Param('id') id: string, @Param('memberUserId') memberUserId: string) {
-    return this.service.removeMember(id, memberUserId);
+  removeMember(
+    @Param('id') id: string,
+    @Param('memberUserId') memberUserId: string,
+    @Req() req: any,
+  ) {
+    return this.service.removeMember(id, memberUserId, req.sharedAccountMembership);
+  }
+
+  @Delete(':id/members/me')
+  @UseGuards(SharedAccountRoleGuard)
+  leaveAccount(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.leaveAccount(id, user.id);
+  }
+
+  @Post(':id/transfer-ownership')
+  @Roles('owner')
+  @UseGuards(SharedAccountRoleGuard)
+  transferOwnership(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body('newOwnerId') newOwnerId: string,
+  ) {
+    return this.service.transferOwnership(id, user.id, newOwnerId);
   }
 
   @Post(':id/cost-splits/recompute')
@@ -74,11 +94,12 @@ export class SharedAccountsController {
   }
 
   @Post(':id/cost-splits/:splitId/settle')
-  @UseGuards(SharedAccountRoleGuard) // herhangi bir üye kendi payını ödendi işaretleyebilir
+  @UseGuards(SharedAccountRoleGuard)
   settleCostSplit(
+    @Param('id') id: string,
     @Param('splitId') splitId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.service.settleCostSplit(splitId, user.id);
+    return this.service.settleCostSplit(id, splitId, user.id);
   }
 }

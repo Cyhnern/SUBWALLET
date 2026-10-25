@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -47,14 +48,13 @@ export class SharedAccountsService {
     return account;
   }
 
-  /** Yalnızca owner/admin çağırabilir (Guard katmanında zorlanır). */
   async inviteMember(sharedAccountId: string, dto: InviteMemberDto) {
     const targetUser = await this.prisma.user.findFirst({
       where: { email: dto.email, deletedAt: null },
     });
     if (!targetUser) {
       throw new NotFoundException(
-        'Bu e-postayla kayıtlı bir kullanıcı bulunamadı. Davet e-postası gönderimi yakında eklenecek.',
+        'Bu e-postayla kayıtlı bir kullanıcı bulunamadı.',
       );
     }
 
@@ -69,20 +69,73 @@ export class SharedAccountsService {
     });
   }
 
-  /** Yalnızca owner/admin çağırabilir; owner kendisini çıkaramaz (hesap sahipsiz kalmasın). */
-  async removeMember(sharedAccountId: string, memberUserId: string) {
-    const membership = await this.prisma.sharedAccountMember.findUnique({
-      where: { sharedAccountId_userId: { sharedAccountId, userId: memberUserId } },
+  async removeMember(sharedAccountId: string, targetUserId: string, actor: { userId: string; role: string }) {
+    const target = await this.prisma.sharedAccountMember.findUnique({
+      where: { sharedAccountId_userId: { sharedAccountId, userId: targetUserId } },
     });
-    if (!membership) throw new NotFoundException('Üyelik bulunamadı');
-    if (membership.role === 'owner') {
+    if (!target) throw new NotFoundException('Üyelik bulunamadı');
+
+    if (actor.role === 'admin') {
+      if (target.role === 'owner' || target.role === 'admin') {
+        throw new ForbiddenException('Admin, başka bir admini veya hesap sahibini çıkaramaz');
+      }
+    }
+
+    if (target.role === 'owner') {
       throw new BadRequestException(
         'Hesap sahibi çıkarılamaz. Önce sahipliği başka bir üyeye devretmelisiniz.',
       );
     }
 
     await this.prisma.sharedAccountMember.delete({
-      where: { sharedAccountId_userId: { sharedAccountId, userId: memberUserId } },
+      where: { sharedAccountId_userId: { sharedAccountId, userId: targetUserId } },
+    });
+  }
+
+  async leaveAccount(sharedAccountId: string, userId: string) {
+    const membership = await this.prisma.sharedAccountMember.findUnique({
+      where: { sharedAccountId_userId: { sharedAccountId, userId } },
+    });
+    if (!membership) throw new NotFoundException('Üyelik bulunamadı');
+
+    if (membership.role === 'owner') {
+      throw new BadRequestException(
+        'Hesap sahibi ayrılamaz. Önce sahipliği başka bir üyeye devretmelisiniz.',
+      );
+    }
+
+    await this.prisma.sharedAccountMember.delete({
+      where: { sharedAccountId_userId: { sharedAccountId, userId } },
+    });
+    return { message: 'Ortak hesaptan başarıyla ayrıldınız' };
+  }
+
+  async transferOwnership(sharedAccountId: string, ownerUserId: string, newOwnerId: string) {
+    const account = await this.findOneOrFail(sharedAccountId);
+    if (account.ownerId !== ownerUserId) {
+      throw new ForbiddenException('Yalnızca hesap sahibi sahipliği devredebilir');
+    }
+
+    const newOwnerMembership = await this.prisma.sharedAccountMember.findUnique({
+      where: { sharedAccountId_userId: { sharedAccountId, userId: newOwnerId } },
+    });
+    if (!newOwnerMembership) {
+      throw new NotFoundException('Yeni sahip bu hesabın üyesi olmalı');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.sharedAccount.update({
+        where: { id: sharedAccountId },
+        data: { ownerId: newOwnerId },
+      });
+      await tx.sharedAccountMember.update({
+        where: { sharedAccountId_userId: { sharedAccountId, userId: ownerUserId } },
+        data: { role: 'admin' },
+      });
+      await tx.sharedAccountMember.update({
+        where: { sharedAccountId_userId: { sharedAccountId, userId: newOwnerId } },
+        data: { role: 'owner' },
+      });
     });
   }
 
@@ -90,11 +143,6 @@ export class SharedAccountsService {
   // MALİYET PAYLAŞIMI HESAPLAMA MOTORU
   // ============================================
 
-  /**
-   * Bir ortak hesaba bağlı tüm aktif aboneliklerin, belirli bir fatura dönemi
-   * için üyeler arasında nasıl bölüşüldüğünü hesaplar ve `cost_splits`
-   * tablosuna yazar (idempotent — ödenmiş/settled kayıtlar dondurulur).
-   */
   async recomputeCostSplits(sharedAccountId: string, billingPeriodStart: Date) {
     const account = await this.findOneOrFail(sharedAccountId);
     const memberIds = account.members.map((m) => m.userId);
@@ -109,7 +157,6 @@ export class SharedAccountsService {
       const splits = this.computeSplitsForSubscription(Number(sub.price), memberIds);
 
       for (const split of splits) {
-        // Settled (ödenmiş) kayıtlar dondurulur — dondurulmuş kayıtların üzerine yazılamaz
         const existing = await this.prisma.costSplit.findUnique({
           where: {
             subscriptionId_userId_billingPeriodStart: {
@@ -179,17 +226,21 @@ export class SharedAccountsService {
     });
   }
 
-  async settleCostSplit(splitId: string, requestingUserId: string) {
-    const split = await this.prisma.costSplit.findUnique({ where: { id: splitId } });
-    if (!split) throw new NotFoundException('Ödeme kaydı bulunamadı');
-
-    if (split.userId !== requestingUserId) {
-      throw new BadRequestException('Yalnızca kendi payınızı ödendi olarak işaretleyebilirsiniz');
-    }
-
-    return this.prisma.costSplit.update({
-      where: { id: splitId },
+  async settleCostSplit(sharedAccountId: string, splitId: string, requestingUserId: string) {
+    const { count } = await this.prisma.costSplit.updateMany({
+      where: {
+        id: splitId,
+        userId: requestingUserId,
+        isSettled: false,
+        subscription: { sharedAccountId },
+      },
       data: { isSettled: true, settledAt: new Date() },
     });
+
+    if (count === 0) {
+      throw new NotFoundException('Maliyet payı bulunamadı veya bu işlem için yetkiniz yok');
+    }
+
+    return { message: 'Ödeme başarılı şekilde ödendi olarak işaretlendi' };
   }
 }

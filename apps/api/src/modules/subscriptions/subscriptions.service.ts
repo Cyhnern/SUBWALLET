@@ -18,10 +18,28 @@ const ALLOWED_TRANSITIONS: Record<SubscriptionStatus, SubscriptionStatus[]> = {
 export class SubscriptionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(userId: string, dto: CreateSubscriptionDto) {
-    if (dto.invoiceUrl && !dto.invoiceUrl.toLowerCase().startsWith('https://')) {
-      throw new BadRequestException('invoiceUrl yalnızca güvenli https:// protokolünü destekler');
+  private async assertReferencesAllowed(
+    userId: string,
+    dto: { categoryId?: string; serviceProviderId?: string },
+  ) {
+    if (dto.categoryId) {
+      const category = await this.prisma.category.findUnique({ where: { id: dto.categoryId } });
+      if (!category || (!category.isSystem && category.userId !== userId)) {
+        throw new BadRequestException('Geçersiz kategori');
+      }
     }
+    if (dto.serviceProviderId) {
+      const provider = await this.prisma.serviceProvider.findUnique({
+        where: { id: dto.serviceProviderId },
+      });
+      if (!provider) {
+        throw new BadRequestException('Geçersiz servis sağlayıcı');
+      }
+    }
+  }
+
+  async create(userId: string, dto: CreateSubscriptionDto) {
+    await this.assertReferencesAllowed(userId, dto);
 
     const startDate = startOfUtcDay(new Date(dto.startDate));
     const trialEndDate = dto.trialEndDate ? startOfUtcDay(new Date(dto.trialEndDate)) : null;
@@ -135,10 +153,7 @@ export class SubscriptionsService {
 
   async update(userId: string, id: string, dto: UpdateSubscriptionDto) {
     const existing = await this.findOneOrFail(userId, id);
-
-    if (dto.invoiceUrl && !dto.invoiceUrl.toLowerCase().startsWith('https://')) {
-      throw new BadRequestException('invoiceUrl yalnızca güvenli https:// protokolünü destekler');
-    }
+    await this.assertReferencesAllowed(userId, dto);
 
     if (existing.sharedAccountId) {
       const membership = await this.prisma.sharedAccountMember.findUnique({
