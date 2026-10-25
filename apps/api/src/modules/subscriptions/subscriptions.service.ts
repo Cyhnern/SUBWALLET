@@ -4,7 +4,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { startOfUtcDay, utcHorizonEnd } from '../../common/date.util';
-import { calculateNextBillingDate } from './billing-cycle.util';
+import { nextBillingDateOnOrAfter } from './billing-cycle.util';
 
 const ALLOWED_TRANSITIONS: Record<SubscriptionStatus, SubscriptionStatus[]> = {
   trial: ['active', 'cancelled'],
@@ -23,12 +23,12 @@ export class SubscriptionsService {
       throw new BadRequestException('invoiceUrl yalnızca güvenli https:// protokolünü destekler');
     }
 
-    const startDate = new Date(dto.startDate);
-    const nextBillingDate = calculateNextBillingDate(
-      startDate,
-      dto.billingCycle,
-      dto.customCycleDays,
-    );
+    const startDate = startOfUtcDay(new Date(dto.startDate));
+    const trialEndDate = dto.trialEndDate ? startOfUtcDay(new Date(dto.trialEndDate)) : null;
+
+    const nextBillingDate = trialEndDate
+      ? trialEndDate
+      : nextBillingDateOnOrAfter(startDate, dto.billingCycle, dto.customCycleDays, startOfUtcDay());
 
     if (dto.sharedAccountId) {
       const membership = await this.prisma.sharedAccountMember.findUnique({
@@ -44,8 +44,9 @@ export class SubscriptionsService {
         ...dto,
         userId,
         startDate,
+        trialEndDate,
         nextBillingDate,
-        status: dto.trialEndDate ? 'trial' : 'active',
+        status: trialEndDate ? 'trial' : 'active',
       },
       include: { serviceProvider: true, category: true },
     });
@@ -153,18 +154,23 @@ export class SubscriptionsService {
     const priceChanged = dto.price !== undefined && Number(existing.price) !== dto.price;
     const cycleChanged = dto.billingCycle && dto.billingCycle !== existing.billingCycle;
 
+    const startDate = dto.startDate ? startOfUtcDay(new Date(dto.startDate)) : existing.startDate;
+    const cycle = dto.billingCycle ?? existing.billingCycle;
+    const customCycleDays = dto.customCycleDays ?? existing.customCycleDays;
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const record = await tx.subscription.update({
         where: { id },
         data: {
           ...dto,
-          ...(dto.startDate ? { startDate: new Date(dto.startDate) } : {}),
+          ...(dto.startDate ? { startDate } : {}),
           ...(cycleChanged
             ? {
-                nextBillingDate: calculateNextBillingDate(
-                  new Date(),
-                  dto.billingCycle!,
-                  dto.customCycleDays,
+                nextBillingDate: nextBillingDateOnOrAfter(
+                  startDate,
+                  cycle,
+                  customCycleDays,
+                  startOfUtcDay(),
                 ),
               }
             : {}),
