@@ -17,15 +17,20 @@ export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async send(input: SendNotificationInput) {
-    const user = await this.prisma.user.findUnique({ where: { id: input.userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: input.userId },
+      include: { deviceTokens: true },
+    });
     if (!user) return;
 
     for (const channel of input.channels) {
       let status: 'sent' | 'failed' | 'delivered' = 'sent';
 
       try {
-        if (channel === 'push' && user.pushToken) {
-          status = await this.sendExpoPushNotification(user.pushToken, input);
+        if (channel === 'push' && user.deviceTokens && user.deviceTokens.length > 0) {
+          for (const device of user.deviceTokens) {
+            status = await this.sendExpoPushNotification(device.token, input);
+          }
         } else {
           this.logger.log(`[${channel}] -> kullanıcı=${input.userId} tip=${input.type}`);
         }

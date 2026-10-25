@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
+import { RegisterDeviceDto } from './dto/register-device.dto';
 
 @Injectable()
 export class UsersService {
@@ -21,6 +22,7 @@ export class UsersService {
         emailVerifiedAt: true,
         createdAt: true,
         notificationPreference: true,
+        deviceTokens: true,
       },
     });
   }
@@ -38,6 +40,30 @@ export class UsersService {
         timezone: true,
       },
     });
+  }
+
+  async registerDevice(userId: string, dto: RegisterDeviceDto) {
+    return this.prisma.deviceToken.upsert({
+      where: { token: dto.token },
+      create: {
+        userId,
+        token: dto.token,
+        platform: dto.platform,
+        lastSeenAt: new Date(),
+      },
+      update: {
+        userId, // cihaz el değiştirirse yeni kullanıcıya otomatik transfer olur
+        platform: dto.platform ?? undefined,
+        lastSeenAt: new Date(),
+      },
+    });
+  }
+
+  async unregisterDevice(userId: string, token: string) {
+    await this.prisma.deviceToken.deleteMany({
+      where: { userId, token },
+    });
+    return { message: 'Cihaz kaydı silindi' };
   }
 
   async updateNotificationPreferences(userId: string, dto: UpdateNotificationPreferencesDto) {
@@ -61,7 +87,7 @@ export class UsersService {
 
   /**
    * Hesabı KVKK (Unutulma Hakkı / Data Minimization) prensiplerine uygun olarak siler:
-   * 1. Kişisel tanımlanabilir verileri (PII: e-posta, ad soyad, avatar, pushToken, OAuth) anonimleştirir.
+   * 1. Kişisel tanımlanabilir verileri (PII: e-posta, ad soyad, avatar, cihaz token'ları, OAuth) anonimleştirir.
    * 2. Parola ve hassas refresh token oturumlarını tamamen temizler.
    * 3. Kişisel aktif abonelikleri iptal edip soft-delete yapar.
    * 4. Ortak hesap üyeliklerinden (hesap sahibi hariç) çıkarır.
@@ -71,8 +97,9 @@ export class UsersService {
     if (!user) throw new NotFoundException('Kullanıcı bulunamadı');
 
     return this.prisma.$transaction(async (tx) => {
-      // 1. Refresh token'ları sil (oturumları kapat)
+      // 1. Refresh token'ları ve cihaz token'larını sil (oturumları kapat)
       await tx.refreshToken.deleteMany({ where: { userId } });
+      await tx.deviceToken.deleteMany({ where: { userId } });
 
       // 2. Kişisel abonelikleri iptal et
       await tx.subscription.updateMany({
@@ -94,7 +121,6 @@ export class UsersService {
           email: anonymizedEmail,
           passwordHash: null,
           avatarUrl: null,
-          pushToken: null,
           oauthProvider: null,
           oauthProviderId: null,
           isActive: false,

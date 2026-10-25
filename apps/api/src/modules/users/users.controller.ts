@@ -1,10 +1,22 @@
-import { Controller, Get, Patch, Delete, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Put,
+  Delete,
+  Body,
+  Param,
+  UseGuards,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
+import { RegisterDeviceDto } from './dto/register-device.dto';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -21,6 +33,17 @@ export class UsersController {
   @Patch('me')
   updateMe(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateUserDto) {
     return this.service.updateMe(user.id, dto);
+  }
+
+  @Put('me/devices')
+  registerDevice(@CurrentUser() user: AuthenticatedUser, @Body() dto: RegisterDeviceDto) {
+    return this.service.registerDevice(user.id, dto);
+  }
+
+  @Delete('me/devices/:token')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  unregisterDevice(@CurrentUser() user: AuthenticatedUser, @Param('token') token: string) {
+    return this.service.unregisterDevice(user.id, token);
   }
 
   @Patch('me/notification-preferences')

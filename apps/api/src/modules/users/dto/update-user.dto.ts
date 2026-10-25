@@ -26,9 +26,4 @@ export class UpdateUserDto {
   @IsOptional()
   @IsTimeZone()
   timezone?: string;
-
-  @ApiPropertyOptional({ description: 'Expo push token — mobil uygulama açılışında otomatik gönderilir' })
-  @IsOptional()
-  @IsString()
-  pushToken?: string;
 }
