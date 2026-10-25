@@ -70,6 +70,7 @@ export class ReminderSchedulerService {
     });
 
     let count = 0;
+    let errorCount = 0;
     for (const sub of overdueSubs) {
       try {
         const nextDate = nextBillingDateOnOrAfter(
@@ -84,10 +85,11 @@ export class ReminderSchedulerService {
         });
         count++;
       } catch (err) {
+        errorCount++;
         this.logger.error(`Abonelik tarihi ilerletme hatası (subId=${sub.id}): ${err}`);
       }
     }
-    this.logger.log(`${count} adet gecikmiş aktif aboneliğin nextBillingDate değeri ilerletildi`);
+    this.logger.log(`${count} adet gecikmiş aktif abonelik ilerletildi, ${errorCount} hata alındı`);
 
     // 2. Deneme süresi (trial) biten abonelikleri active duruma geçirip fatura tarihini hesapla
     const expiredTrials = await this.prisma.subscription.findMany({
@@ -102,6 +104,7 @@ export class ReminderSchedulerService {
     });
 
     let trialCount = 0;
+    let trialErrorCount = 0;
     for (const sub of expiredTrials) {
       try {
         const nextDate = nextBillingDateOnOrAfter(
@@ -119,9 +122,10 @@ export class ReminderSchedulerService {
         });
         trialCount++;
       } catch (err) {
+        trialErrorCount++;
         this.logger.error(`Deneme süresi biten abonelik güncelleme hatası (subId=${sub.id}): ${err}`);
       }
     }
-    this.logger.log(`${trialCount} adet deneme süresi biten abonelik aktif duruma geçirildi`);
+    this.logger.log(`${trialCount} adet deneme süresi biten abonelik aktif duruma geçirildi, ${trialErrorCount} hata alındı`);
   }
 }
