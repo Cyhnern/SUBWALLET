@@ -153,6 +153,14 @@ export class SubscriptionsService {
 
     const priceChanged = dto.price !== undefined && Number(existing.price) !== dto.price;
     const cycleChanged = dto.billingCycle && dto.billingCycle !== existing.billingCycle;
+    const customCycleDaysChanged =
+      dto.customCycleDays !== undefined && dto.customCycleDays !== existing.customCycleDays;
+    const startDateChanged =
+      dto.startDate !== undefined &&
+      new Date(dto.startDate).getTime() !== new Date(existing.startDate).getTime();
+
+    const shouldRecalculateNextBillingDate =
+      cycleChanged || customCycleDaysChanged || startDateChanged;
 
     const startDate = dto.startDate ? startOfUtcDay(new Date(dto.startDate)) : existing.startDate;
     const cycle = dto.billingCycle ?? existing.billingCycle;
@@ -164,7 +172,7 @@ export class SubscriptionsService {
         data: {
           ...dto,
           ...(dto.startDate ? { startDate } : {}),
-          ...(cycleChanged
+          ...(shouldRecalculateNextBillingDate
             ? {
                 nextBillingDate: nextBillingDateOnOrAfter(
                   startDate,
