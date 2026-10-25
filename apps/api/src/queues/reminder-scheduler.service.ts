@@ -55,7 +55,7 @@ export class ReminderSchedulerService {
   }
 
   // Her gün gece yarısı 00:00'da çalışır: yenileme tarihi geçmiş aktif aboneliklerin nextBillingDate değerini
-  // anchor (startDate) üzerinden ilerletir ve deneme süresi biten abonelikleri aktife geçirir.
+  // anchor (startDate) üzerinden ilerletir ve deneme süresi biten abonelikleri trial -> active duruma geçirir.
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async advanceOverdueBillingDates() {
     const today = startOfUtcDay();
@@ -91,7 +91,7 @@ export class ReminderSchedulerService {
     }
     this.logger.log(`${count} adet gecikmiş aktif abonelik ilerletildi, ${errorCount} hata alındı`);
 
-    // 2. Deneme süresi (trial) biten abonelikleri active duruma geçirip fatura tarihini hesapla
+    // 2. Deneme süresi (trial) biten abonelikleri trial -> active duruma geçir, geçmişe kaydet ve fatura tarihini hesapla
     const expiredTrials = await this.prisma.subscription.findMany({
       where: {
         status: 'trial',
@@ -113,19 +113,29 @@ export class ReminderSchedulerService {
           sub.customCycleDays,
           today,
         );
-        await this.prisma.subscription.update({
-          where: { id: sub.id },
-          data: {
-            status: 'active',
-            nextBillingDate: nextDate,
-          },
-        });
+        await this.prisma.$transaction([
+          this.prisma.subscription.update({
+            where: { id: sub.id },
+            data: {
+              status: 'active',
+              nextBillingDate: nextDate,
+            },
+          }),
+          this.prisma.subscriptionHistory.create({
+            data: {
+              subscriptionId: sub.id,
+              changedField: 'status',
+              oldValue: 'trial',
+              newValue: 'active',
+            },
+          }),
+        ]);
         trialCount++;
       } catch (err) {
         trialErrorCount++;
         this.logger.error(`Deneme süresi biten abonelik güncelleme hatası (subId=${sub.id}): ${err}`);
       }
     }
-    this.logger.log(`${trialCount} adet deneme süresi biten abonelik aktif duruma geçirildi, ${trialErrorCount} hata alındı`);
+    this.logger.log(`${trialCount} adet deneme süresi biten abonelik active duruma geçirildi, ${trialErrorCount} hata alındı`);
   }
 }
