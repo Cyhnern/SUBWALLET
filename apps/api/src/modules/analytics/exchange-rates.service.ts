@@ -1,4 +1,5 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, OnModuleInit } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { SUPPORTED_CURRENCIES } from '../../common/currency';
 
 // Fallback exchange rates relative to USD
@@ -10,11 +11,23 @@ const FALLBACK_USD_RATES: Record<string, number> = {
 };
 
 @Injectable()
-export class ExchangeRatesService {
+export class ExchangeRatesService implements OnModuleInit {
   private readonly logger = new Logger(ExchangeRatesService.name);
   private ratesCache: Record<string, number> = { ...FALLBACK_USD_RATES };
   private lastFetchTime = 0;
   private readonly CACHE_TTL_MS = 60 * 60 * 1000;
+
+  async onModuleInit() {
+    // Non-blocking background fetch so module initialization never hangs or times out in tests/startup
+    this.refreshRatesIfStale().catch((err) => {
+      this.logger.warn(`Başlangıç kur güncellemesi uyarısı: ${err}`);
+    });
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async handleCronRefresh() {
+    await this.refreshRatesIfStale();
+  }
 
   private validateCurrency(currency: string): string {
     const curr = (currency || '').toUpperCase().trim();
@@ -26,12 +39,18 @@ export class ExchangeRatesService {
     return curr;
   }
 
-  private async refreshRatesIfStale(): Promise<void> {
+  async refreshRatesIfStale(): Promise<void> {
     const now = Date.now();
-    if (now - this.lastFetchTime < this.CACHE_TTL_MS) return;
+    if (this.lastFetchTime > 0 && now - this.lastFetchTime < this.CACHE_TTL_MS) return;
 
     try {
-      const response = await fetch('https://open.er-api.com/v6/latest/USD');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const response = await fetch('https://open.er-api.com/v6/latest/USD', {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
       if (response.ok) {
         const data = await response.json();
         if (data && data.rates) {
@@ -42,7 +61,7 @@ export class ExchangeRatesService {
             GBP: data.rates.GBP ?? FALLBACK_USD_RATES.GBP,
           };
           this.lastFetchTime = now;
-          this.logger.log('Döviz kurları güncellendi');
+          this.logger.log('Döviz kurları canlı API üzerinden güncellendi');
           return;
         }
       }
@@ -57,6 +76,9 @@ export class ExchangeRatesService {
 
     if (from === to) return amount;
 
+    // Background refresh trigger if stale
+    this.refreshRatesIfStale().catch(() => {});
+
     const fromRateToUsd = this.ratesCache[from] ?? FALLBACK_USD_RATES[from];
     const toRateToUsd = this.ratesCache[to] ?? FALLBACK_USD_RATES[to];
 
@@ -68,6 +90,10 @@ export class ExchangeRatesService {
 
   getRatesMap(baseCurrency = 'TRY'): Record<string, number> {
     const base = this.validateCurrency(baseCurrency);
+
+    // Background refresh trigger if stale
+    this.refreshRatesIfStale().catch(() => {});
+
     const baseRateToUsd = this.ratesCache[base] ?? FALLBACK_USD_RATES[base];
 
     const rates: Record<string, number> = {};
