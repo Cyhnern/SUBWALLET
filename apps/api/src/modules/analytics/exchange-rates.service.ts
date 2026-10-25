@@ -18,10 +18,7 @@ export class ExchangeRatesService implements OnModuleInit {
   private readonly CACHE_TTL_MS = 60 * 60 * 1000;
 
   async onModuleInit() {
-    // Non-blocking background fetch so module initialization never hangs or times out in tests/startup
-    this.refreshRatesIfStale().catch((err) => {
-      this.logger.warn(`Başlangıç kur güncellemesi uyarısı: ${err}`);
-    });
+    void this.refreshRatesIfStale();
   }
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -76,8 +73,7 @@ export class ExchangeRatesService implements OnModuleInit {
 
     if (from === to) return amount;
 
-    // Background refresh trigger if stale
-    this.refreshRatesIfStale().catch(() => {});
+    void this.refreshRatesIfStale();
 
     const fromRateToUsd = this.ratesCache[from] ?? FALLBACK_USD_RATES[from];
     const toRateToUsd = this.ratesCache[to] ?? FALLBACK_USD_RATES[to];
@@ -91,8 +87,7 @@ export class ExchangeRatesService implements OnModuleInit {
   getRatesMap(baseCurrency = 'TRY'): Record<string, number> {
     const base = this.validateCurrency(baseCurrency);
 
-    // Background refresh trigger if stale
-    this.refreshRatesIfStale().catch(() => {});
+    void this.refreshRatesIfStale();
 
     const baseRateToUsd = this.ratesCache[base] ?? FALLBACK_USD_RATES[base];
 
