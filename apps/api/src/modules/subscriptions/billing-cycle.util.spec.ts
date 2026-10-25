@@ -37,8 +37,9 @@ describe('calculateNextBillingDate', () => {
 });
 
 describe('nextBillingDateOnOrAfter & addCycles', () => {
-  it('anchor tarihinden (31 Ocak) hesaplama yaparak tarih kaymasını önler (31 Oca -> 28 Şub -> 31 Mar -> 30 Nis)', () => {
+  it('anchor tarihinden (31 Ocak) hesaplama yaparak tarih kaymasını önler (31 Oca, 28 Şub, 31 Mar, 30 Nis)', () => {
     const anchor = new Date('2026-01-31');
+    expect(anchor.toISOString().slice(0, 10)).toBe('2026-01-31');
     expect(addCycles(anchor, 'monthly', null, 1).toISOString().slice(0, 10)).toBe('2026-02-28');
     expect(addCycles(anchor, 'monthly', null, 2).toISOString().slice(0, 10)).toBe('2026-03-31');
     expect(addCycles(anchor, 'monthly', null, 3).toISOString().slice(0, 10)).toBe('2026-04-30');
