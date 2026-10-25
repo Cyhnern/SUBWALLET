@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsArray, IsIn, IsInt, Min, IsBoolean } from 'class-validator';
+import { IsOptional, IsArray, IsIn, IsInt, Min, Max, IsBoolean, ArrayMaxSize, ArrayUnique } from 'class-validator';
 import { NotificationChannel } from '@prisma/client';
 
 export class UpdateNotificationPreferencesDto {
@@ -12,8 +12,11 @@ export class UpdateNotificationPreferencesDto {
   @ApiPropertyOptional({ example: [7, 3, 1], description: 'Yenilemeden kaç gün önce hatırlatılacağı' })
   @IsOptional()
   @IsArray()
+  @ArrayMaxSize(5)
+  @ArrayUnique()
   @IsInt({ each: true })
   @Min(0, { each: true })
+  @Max(30, { each: true })
   daysBeforeRenewal?: number[];
 
   @ApiPropertyOptional()

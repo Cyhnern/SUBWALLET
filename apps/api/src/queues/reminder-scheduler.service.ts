@@ -14,7 +14,7 @@ export interface RenewalReminderJobData {
   daysUntil: number;
 }
 
-const REMINDER_HORIZON_DAYS = 7;
+const REMINDER_HORIZON_DAYS = 30;
 
 @Injectable()
 export class ReminderSchedulerService {
@@ -26,15 +26,16 @@ export class ReminderSchedulerService {
     private readonly prisma: PrismaService,
   ) {}
 
-  @Cron(CronExpression.EVERY_DAY_AT_7AM)
+  @Cron(CronExpression.EVERY_DAY_AT_7AM, { timeZone: 'UTC' })
   async scheduleUpcomingReminders() {
     const candidates = await this.subscriptionsService.findRenewingWithin(REMINDER_HORIZON_DAYS);
     this.logger.log(`${candidates.length} abonelik yenileme penceresinde tarandı`);
 
+    const todayUtc = startOfUtcDay();
     let queued = 0;
     for (const sub of candidates) {
       try {
-        const daysUntil = differenceInCalendarDays(sub.nextBillingDate, new Date());
+        const daysUntil = differenceInCalendarDays(sub.nextBillingDate, todayUtc);
         const prefs = sub.user.notificationPreference;
         const preferredDays = prefs?.daysBeforeRenewal ?? [3, 1];
 
@@ -54,9 +55,9 @@ export class ReminderSchedulerService {
     this.logger.log(`${queued} hatırlatıcı iş kuyruğa eklendi`);
   }
 
-  // Her gün gece yarısı 00:00'da çalışır: yenileme tarihi geçmiş aktif aboneliklerin nextBillingDate değerini
+  // Her gün gece yarısı 00:00 UTC'de çalışır: yenileme tarihi geçmiş aktif aboneliklerin nextBillingDate değerini
   // anchor (startDate) üzerinden ilerletir ve deneme süresi biten abonelikleri trial -> active duruma geçirir.
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT, { timeZone: 'UTC' })
   async advanceOverdueBillingDates() {
     const today = startOfUtcDay();
 

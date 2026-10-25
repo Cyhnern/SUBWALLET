@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { differenceInCalendarDays, isPast, subDays } from 'date-fns';
 import { Subscription } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -34,7 +35,7 @@ export class ZombieDetectorService {
     let score = 0;
     const reasons: string[] = [];
 
-    // Sinyal 1 (%40): uzun süredir kullanılmadı ya da hiç işaretlenmedi (Infinity kullanılmaz)
+    // Sinyal 1 (%40): uzun süredir kullanılmadı ya da hiç işaretlenmedi
     if (!sub.lastUsedAt) {
       score += 40;
       reasons.push('Henüz hiç kullanılmadı veya işaretlenmedi');
@@ -116,6 +117,7 @@ export class ZombieDetectorService {
     return scores.filter((s) => s.isZombie);
   }
 
+  @Cron('0 8 * * 1', { timeZone: 'UTC' })
   async scanAllAndNotify(): Promise<{ scanned: number; flagged: number }> {
     const activeSubs = await this.prisma.subscription.findMany({
       where: { status: 'active', deletedAt: null },
