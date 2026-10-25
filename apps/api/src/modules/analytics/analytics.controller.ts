@@ -43,7 +43,12 @@ export class AnalyticsController {
 
   @Get('exchange-rates')
   exchangeRatesMap(@Query('base') baseCurrency?: string) {
-    return this.exchangeRates.getRatesMap(baseCurrency || 'TRY');
+    const base = baseCurrency || 'TRY';
+    return {
+      baseCurrency: base,
+      rates: this.exchangeRates.getRatesMap(base),
+      status: this.exchangeRates.getStatus(),
+    };
   }
 
   @Get('export/csv')
