@@ -12,7 +12,8 @@ describe('SharedAccountsService', () => {
       sharedAccount: { create: jest.fn(), findMany: jest.fn(), findUnique: jest.fn() },
       user: { findFirst: jest.fn() },
       sharedAccountMember: { create: jest.fn(), findUnique: jest.fn(), delete: jest.fn() },
-      costSplit: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn(), findMany: jest.fn() },
+      costSplit: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn(), findMany: jest.fn(), createMany: jest.fn(), updateMany: jest.fn() },
+      $transaction: jest.fn((cb: any) => cb(prisma)),
     };
 
     const module = await Test.createTestingModule({
@@ -51,26 +52,32 @@ describe('SharedAccountsService', () => {
     });
   });
 
-  describe('recomputeCostSplits', () => {
-    it('settled (ödenmiş) kayıtları dondurur ve üzerine yazılmasını engeller', async () => {
+  describe('recomputeCostSplits & cent distribution', () => {
+    it('3 üyeli hesapta 10.00 TL tutarlı aboneliği 3.34 / 3.33 / 3.33 olarak kuruş hassasiyetinde böler', async () => {
       const now = new Date();
       prisma.sharedAccount.findUnique.mockResolvedValue({
         id: 'sa-1',
-        members: [{ userId: 'user-1' }, { userId: 'user-2' }],
-        subscriptions: [{ id: 'sub-1', status: 'active', price: 100 }],
+        members: [
+          { userId: 'user-1', joinedAt: new Date('2026-01-01') },
+          { userId: 'user-2', joinedAt: new Date('2026-01-02') },
+          { userId: 'user-3', joinedAt: new Date('2026-01-03') },
+        ],
+        subscriptions: [{ id: 'sub-1', status: 'active', price: 10 }],
       });
 
-      prisma.costSplit.findUnique
-        .mockResolvedValueOnce({ id: 'cs-1', isSettled: true })
-        .mockResolvedValueOnce(null);
-
-      prisma.costSplit.upsert.mockResolvedValue({ id: 'cs-2', computedAmount: '50' });
+      prisma.costSplit.findMany.mockResolvedValue([
+        { userId: 'user-1', computedAmount: '3.34' },
+        { userId: 'user-2', computedAmount: '3.33' },
+        { userId: 'user-3', computedAmount: '3.33' },
+      ]);
 
       const results = await service.recomputeCostSplits('sa-1', now);
 
-      expect(results).toHaveLength(2);
-      expect(results[0].isSettled).toBe(true);
-      expect(prisma.costSplit.upsert).toHaveBeenCalledTimes(1);
+      expect(results).toHaveLength(3);
+      expect(results[0].computedAmount).toBe('3.34');
+      expect(results[1].computedAmount).toBe('3.33');
+      expect(results[2].computedAmount).toBe('3.33');
+      expect(prisma.costSplit.createMany).toHaveBeenCalledTimes(1);
     });
   });
 });

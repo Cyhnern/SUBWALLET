@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { CreateSharedAccountDto } from './dto/create-shared-account.dto';
 import { InviteMemberDto } from './dto/invite-member.dto';
+import { startOfUtcDay } from '../../common/date.util';
 
 @Injectable()
 export class SharedAccountsService {
@@ -140,76 +141,87 @@ export class SharedAccountsService {
   }
 
   // ============================================
-  // MALİYET PAYLAŞIMI HESAPLAMA MOTORU
+  // MALİYET PAYLAŞIMI HESAPLAMA MOTORU (A-1)
   // ============================================
 
-  async recomputeCostSplits(sharedAccountId: string, billingPeriodStart: Date) {
+  async recomputeCostSplits(sharedAccountId: string, rawBillingPeriodStart: Date) {
+    const billingPeriodStart = startOfUtcDay(new Date(rawBillingPeriodStart));
     const account = await this.findOneOrFail(sharedAccountId);
-    const memberIds = account.members.map((m) => m.userId);
+
+    // Üyeleri joinedAt: 'asc' ile sabit sırada al
+    const sortedMembers = [...account.members].sort(
+      (a, b) => new Date(a.joinedAt).getTime() - new Date(b.joinedAt).getTime(),
+    );
+    const memberIds = sortedMembers.map((m) => m.userId);
     if (memberIds.length === 0) {
       throw new BadRequestException('Hesapta üye bulunmuyor');
     }
 
-    const results: any[] = [];
-    for (const sub of account.subscriptions) {
-      if (sub.status !== 'active') continue;
+    return this.prisma.$transaction(async (tx) => {
+      const results: any[] = [];
 
-      const splits = this.computeSplitsForSubscription(Number(sub.price), memberIds);
+      for (const sub of account.subscriptions) {
+        if (sub.status !== 'active') continue;
 
-      for (const split of splits) {
-        const existing = await this.prisma.costSplit.findUnique({
-          where: {
-            subscriptionId_userId_billingPeriodStart: {
+        const splits = this.computeSplitsForSubscription(Number(sub.price), memberIds);
+
+        // 1. Eksik kayıtlar için createMany ({ skipDuplicates: true })
+        await tx.costSplit.createMany({
+          data: splits.map((s) => ({
+            subscriptionId: sub.id,
+            userId: s.userId,
+            splitType: 'equal',
+            computedAmount: new Prisma.Decimal(s.amount),
+            billingPeriodStart,
+          })),
+          skipDuplicates: true,
+        });
+
+        // 2. Ödenmemiş (isSettled: false) kayıtları güncelle (atomik koruma)
+        for (const split of splits) {
+          await tx.costSplit.updateMany({
+            where: {
               subscriptionId: sub.id,
               userId: split.userId,
               billingPeriodStart,
+              isSettled: false,
             },
-          },
-        });
-
-        if (existing?.isSettled) {
-          results.push(existing);
-          continue;
+            data: {
+              computedAmount: new Prisma.Decimal(split.amount),
+            },
+          });
         }
 
-        const record = await this.prisma.costSplit.upsert({
-          where: {
-            subscriptionId_userId_billingPeriodStart: {
-              subscriptionId: sub.id,
-              userId: split.userId,
-              billingPeriodStart,
-            },
-          },
-          create: {
-            subscriptionId: sub.id,
-            userId: split.userId,
-            splitType: 'equal',
-            computedAmount: new Prisma.Decimal(split.amount),
-            billingPeriodStart,
-          },
-          update: {
-            computedAmount: new Prisma.Decimal(split.amount),
-          },
+        const currentSplits = await tx.costSplit.findMany({
+          where: { subscriptionId: sub.id, billingPeriodStart },
         });
-        results.push(record);
+        results.push(...currentSplits);
       }
-    }
 
-    return results;
+      return results;
+    });
   }
 
   private computeSplitsForSubscription(
     price: number,
     memberIds: string[],
   ): { userId: string; amount: number }[] {
-    const perMember = Math.round((price / memberIds.length) * 100) / 100;
-    const totalRounded = perMember * (memberIds.length - 1);
-    const lastMemberAmount = Math.round((price - totalRounded) * 100) / 100;
+    const totalCents = Math.round(price * 100);
+    const memberCount = memberIds.length;
+    const baseShareCents = Math.floor(totalCents / memberCount);
+    let remainderCents = totalCents % memberCount;
 
-    return memberIds.map((userId, index) => ({
-      userId,
-      amount: index === memberIds.length - 1 ? lastMemberAmount : perMember,
-    }));
+    return memberIds.map((userId) => {
+      let shareCents = baseShareCents;
+      if (remainderCents > 0) {
+        shareCents += 1;
+        remainderCents -= 1;
+      }
+      return {
+        userId,
+        amount: Math.round(shareCents) / 100,
+      };
+    });
   }
 
   async listCostSplits(sharedAccountId: string, billingPeriodStart?: Date) {
