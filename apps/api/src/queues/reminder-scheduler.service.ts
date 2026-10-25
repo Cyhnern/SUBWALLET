@@ -54,6 +54,8 @@ export class ReminderSchedulerService implements OnModuleInit {
     let queued = 0;
     for (const sub of candidates) {
       try {
+        if (sub.status !== 'active') continue;
+
         const daysUntil = differenceInCalendarDays(sub.nextBillingDate, todayUtc);
         const prefs = sub.user.notificationPreference;
         const preferredDays = prefs?.daysBeforeRenewal ?? [3, 1];
@@ -81,23 +83,30 @@ export class ReminderSchedulerService implements OnModuleInit {
       where: { id: subscriptionId },
       include: { serviceProvider: true, user: { include: { notificationPreference: true } } },
     });
-    if (!sub || sub.deletedAt) {
-      this.logger.warn(`Abonelik bulunamadı/silinmiş, iş atlanıyor: ${subscriptionId}`);
+    if (!sub || sub.deletedAt || sub.status !== 'active') {
+      this.logger.warn(`Abonelik bulunamadı, silinmiş veya aktif değil, hatırlatıcı atlanıyor: ${subscriptionId}`);
       return;
     }
 
     const serviceName = sub.serviceProvider?.name ?? sub.customName ?? 'Aboneliğiniz';
     const channels = sub.user.notificationPreference?.channels ?? ['push'];
+    const price = sub.price.toString();
+    const currency = sub.currency;
 
-    await this.notifications.send({
+    const results = await this.notifications.send({
       userId,
       channels,
       type: 'renewal_reminder',
       subscriptionId,
-      payload: { serviceName, price: sub.price.toString(), currency: sub.currency, daysUntil },
+      payload: { serviceName, price, currency, daysUntil },
     });
 
-    this.logger.log(`Hatırlatıcı gönderildi: kullanıcı=${userId} abonelik=${subscriptionId}`);
+    const hasFailedPush = results.some((r) => r.channel === 'push' && r.status === 'failed');
+    if (hasFailedPush) {
+      throw new Error(`Hatırlatıcı push bildirimi gönderilemedi: subscriptionId=${subscriptionId}`);
+    }
+
+    this.logger.log(`Hatırlatıcı başarıyla gönderildi: kullanıcı=${userId} abonelik=${subscriptionId}`);
   }
 
   async advanceOverdueBillingDates() {
