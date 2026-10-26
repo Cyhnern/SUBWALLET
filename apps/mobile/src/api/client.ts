@@ -1,5 +1,6 @@
 import { API_BASE_URL } from './config';
 import { tokenStorage } from './token-storage';
+import { authEvents } from './auth-events';
 import type { TokenPair } from '../types/api';
 
 export class ApiError extends Error {
@@ -11,41 +12,62 @@ export class ApiError extends Error {
   }
 }
 
-let refreshInFlight: Promise<TokenPair | null> | null = null;
+async function fetchWithTimeout(url: string, options: RequestInit & { timeout?: number } = {}): Promise<Response> {
+  const { timeout = 15000, ...fetchOptions } = options;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      signal: controller.signal,
+    });
+    clearTimeout(id);
+    return response;
+  } catch (error) {
+    clearTimeout(id);
+    throw error;
+  }
+}
 
-async function refreshAccessToken(): Promise<TokenPair | null> {
+let refreshInFlight: Promise<
+  { ok: true; tokens: TokenPair } | { ok: false; reason: 'invalid' | 'network' }
+> | null = null;
+
+async function refreshAccessToken(): Promise<
+  { ok: true; tokens: TokenPair } | { ok: false; reason: 'invalid' | 'network' }
+> {
   const refreshToken = await tokenStorage.getRefreshToken();
-  if (!refreshToken) return null;
+  if (!refreshToken) return { ok: false, reason: 'invalid' };
 
   try {
-    const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+    const res = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken }),
     });
-    if (!res.ok) return null;
+
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, reason: 'invalid' };
+    }
+    if (!res.ok) {
+      return { ok: false, reason: 'network' };
+    }
 
     const tokens: TokenPair = await res.json();
     await tokenStorage.setTokens(tokens.accessToken, tokens.refreshToken);
-    return tokens;
+    return { ok: true, tokens };
   } catch {
-    return null;
+    return { ok: false, reason: 'network' };
   }
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: unknown;
   skipAuth?: boolean;
   responseType?: 'json' | 'text';
 }
 
-/**
- * Tüm API çağrılarının geçtiği tek nokta. 401 aldığında refresh token'ı
- * kullanarak SESSIZCE bir kez daha dener (kullanıcı hiçbir şey fark etmez).
- * Refresh de başarısız olursa, çağıran taraf (AuthContext) kullanıcıyı
- * login ekranına yönlendirmekle sorumludur.
- */
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, skipAuth = false } = options;
 
@@ -56,7 +78,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   const doFetch = () =>
-    fetch(`${API_BASE_URL}${path}`, {
+    fetchWithTimeout(`${API_BASE_URL}${path}`, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined,
@@ -65,22 +87,24 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   let res = await doFetch();
 
   if (res.status === 401 && !skipAuth) {
-    // Aynı anda birden fazla istek 401 alırsa, refresh'i sadece BİR kez tetikle
-    // (aksi halde her istek kendi refresh'ini tetikler, refresh token rotasyonu
-    // yüzünden birbirini geçersiz kılar).
     if (!refreshInFlight) {
       refreshInFlight = refreshAccessToken().finally(() => {
         refreshInFlight = null;
       });
     }
-    const newTokens = await refreshInFlight;
+    const refreshResult = await refreshInFlight;
 
-    if (newTokens) {
-      headers.Authorization = `Bearer ${newTokens.accessToken}`;
+    if (refreshResult && refreshResult.ok) {
+      headers.Authorization = `Bearer ${refreshResult.tokens.accessToken}`;
       res = await doFetch();
     } else {
-      await tokenStorage.clearTokens();
-      throw new ApiError(401, 'Oturum süresi doldu');
+      if (refreshResult && refreshResult.reason === 'invalid') {
+        await tokenStorage.clearTokens();
+        authEvents.emitSessionExpired();
+        throw new ApiError(401, 'Oturum süresi doldu');
+      } else {
+        throw new ApiError(0, 'Bağlantı hatası. Lütfen internet bağlantınızı kontrol edin.');
+      }
     }
   }
 

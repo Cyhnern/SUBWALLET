@@ -17,6 +17,7 @@ export interface User {
   baseCurrency: string;
   timezone: string;
   notificationPreference?: NotificationPreference | null;
+  deviceTokens?: Array<{ id: string; token: string; platform?: string }>;
 }
 
 export interface Category {
@@ -69,6 +70,10 @@ export interface BurnRateResult {
   yearlyTotal: number;
   currency: string;
   subscriptionCount: number;
+  exchangeRateStatus?: {
+    source: 'live' | 'fallback';
+    asOf: string | null;
+  };
 }
 
 export interface CategorySpend {
@@ -137,4 +142,3 @@ export interface CostSplit {
     currency: string;
   };
 }
-

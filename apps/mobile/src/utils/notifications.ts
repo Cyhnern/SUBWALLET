@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { usersApi } from '../api/users';
 
 /**
@@ -6,18 +7,14 @@ import { usersApi } from '../api/users';
  */
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   try {
-    // Check if running in browser or native platform
     if (Platform.OS === 'web') {
-      console.log('Push notifications are managed via Web Push / Service Workers on web');
       return null;
     }
 
-    // Try requiring expo-notifications safely on native platforms
     let Notifications: any = null;
     try {
       Notifications = require('expo-notifications');
     } catch {
-      console.log('expo-notifications module not installed in current environment');
       return null;
     }
 
@@ -41,21 +38,21 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     }
 
     if (finalStatus !== 'granted') {
-      console.log('Push notification permission denied');
       return null;
     }
 
-    const tokenData = await Notifications.getExpoPushTokenAsync();
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+    const tokenData = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined,
+    );
     const token = tokenData?.data;
 
     if (token) {
-      await usersApi.updateMe({ pushToken: token });
-      console.log('Push Token registered successfully:', token);
+      await usersApi.registerDevice({ token, platform: Platform.OS });
     }
 
     return token || null;
   } catch (error) {
-    console.log('Error registering for push notifications:', error);
     return null;
   }
 }

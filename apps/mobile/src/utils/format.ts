@@ -21,7 +21,12 @@ export function subscriptionName(subscription: Pick<Subscription, 'customName' |
 }
 
 export function formatDate(isoDate: string) {
-  return new Date(isoDate).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' });
+  return new Date(isoDate).toLocaleDateString('tr-TR', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 export function formatMoney(amount: number | string, currency: string) {

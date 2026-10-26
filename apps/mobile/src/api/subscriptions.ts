@@ -2,7 +2,8 @@ import { apiRequest } from './client';
 import type { Subscription, SubscriptionHistoryEntry, SubscriptionStatus } from '../types/api';
 
 export interface CreateSubscriptionInput {
-  customName: string;
+  serviceProviderId?: string;
+  customName?: string;
   price: number;
   currency: string;
   billingCycle: Subscription['billingCycle'];

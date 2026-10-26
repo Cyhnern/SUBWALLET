@@ -19,21 +19,7 @@ import { useAuth } from '../src/context/AuthContext';
 import { colors } from '../src/theme';
 import type { BillingCycle } from '../src/types/api';
 
-const POPULAR_SERVICES = [
-  { name: 'Netflix', logo: '🎬', price: '199.99', currency: 'TRY', cycle: 'monthly' as const },
-  { name: 'Spotify', logo: '🎵', price: '59.99', currency: 'TRY', cycle: 'monthly' as const },
-  { name: 'YouTube Premium', logo: '📹', price: '57.99', currency: 'TRY', cycle: 'monthly' as const },
-  { name: 'Disney+', logo: '🍿', price: '134.99', currency: 'TRY', cycle: 'monthly' as const },
-  { name: 'ChatGPT Plus', logo: '🤖', price: '20.00', currency: 'USD', cycle: 'monthly' as const },
-  { name: 'Amazon Prime', logo: '📦', price: '39.00', currency: 'TRY', cycle: 'monthly' as const },
-  { name: 'Apple Music / One', logo: '🍎', price: '39.99', currency: 'TRY', cycle: 'monthly' as const },
-  { name: 'iCloud+', logo: '☁️', price: '39.99', currency: 'TRY', cycle: 'monthly' as const },
-  { name: 'Exxen', logo: '⚽', price: '160.00', currency: 'TRY', cycle: 'monthly' as const },
-  { name: 'BluTV', logo: '🍿', price: '99.90', currency: 'TRY', cycle: 'monthly' as const },
-  { name: 'Midjourney', logo: '🎨', price: '10.00', currency: 'USD', cycle: 'monthly' as const },
-  { name: 'Xbox Game Pass', logo: '💚', price: '209.00', currency: 'TRY', cycle: 'monthly' as const },
-  { name: 'Spor / Fitness', logo: '🏋️‍♂️', price: '1000.00', currency: 'TRY', cycle: 'monthly' as const },
-];
+const SUPPORTED_CURRENCIES = ['TRY', 'USD', 'EUR', 'GBP'];
 
 const CYCLES: { value: BillingCycle; label: string }[] = [
   { value: 'weekly', label: 'Haftalık' },
@@ -50,11 +36,11 @@ export default function AddSubscriptionScreen() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
+  const [serviceProviderId, setServiceProviderId] = useState<string | undefined>();
   const [price, setPrice] = useState('');
   const [currency, setCurrency] = useState(user?.baseCurrency ?? 'TRY');
   const [cycle, setCycle] = useState<BillingCycle>('monthly');
   const [categoryId, setCategoryId] = useState<string | undefined>();
-  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [notes, setNotes] = useState('');
   const [invoiceUrl, setInvoiceUrl] = useState('');
 
@@ -76,27 +62,32 @@ export default function AddSubscriptionScreen() {
     },
   });
 
-  function selectPopularService(preset: typeof POPULAR_SERVICES[0]) {
-    setSelectedPreset(preset.name);
-    setName(preset.name);
-    setPrice(preset.price);
-    setCurrency(preset.currency);
-    setCycle(preset.cycle);
+  function selectProvider(provider: { id: string; name: string; defaultCategoryId?: string | null }) {
+    if (serviceProviderId === provider.id) {
+      setServiceProviderId(undefined);
+      setName('');
+    } else {
+      setServiceProviderId(provider.id);
+      setName(provider.name);
+      if (provider.defaultCategoryId) {
+        setCategoryId(provider.defaultCategoryId);
+      }
+    }
   }
 
   function handleSubmit() {
     const priceNumber = Number(price.replace(',', '.'));
-    if (!name.trim()) {
-      Alert.alert('Eksik bilgi', 'Servis adını gir.');
+    if (!serviceProviderId && !name.trim()) {
+      Alert.alert('Eksik bilgi', 'Servis adını girin veya katalogdan seçin.');
       return;
     }
     if (!priceNumber || priceNumber <= 0) {
-      Alert.alert('Geçersiz fiyat', 'Geçerli bir fiyat gir.');
+      Alert.alert('Geçersiz fiyat', 'Geçerli bir fiyat girin.');
       return;
     }
 
     mutation.mutate({
-      customName: name.trim(),
+      ...(serviceProviderId ? { serviceProviderId } : { customName: name.trim() }),
       price: priceNumber,
       currency: currency.trim().toUpperCase() || 'TRY',
       billingCycle: cycle,
@@ -109,34 +100,37 @@ export default function AddSubscriptionScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {/* Popular Presets Selector */}
-      <Text style={styles.sectionHeader}>⭐ Hızlı Seçim (Popüler Servisler)</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetScroll}>
-        {POPULAR_SERVICES.map((preset) => {
-          const isSelected = selectedPreset === preset.name;
-          return (
-            <Pressable
-              key={preset.name}
-              style={[styles.presetCard, isSelected && styles.presetCardActive]}
-              onPress={() => selectPopularService(preset)}
-            >
-              <Text style={styles.presetLogo}>{preset.logo}</Text>
-              <Text style={[styles.presetName, isSelected && styles.presetTextActive]}>{preset.name}</Text>
-              <Text style={styles.presetPrice}>{preset.price} {preset.currency}</Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
+      {/* Popular Service Catalog Selector */}
+      <Text style={styles.sectionHeader}>⭐ Popüler Servis Kataloğu</Text>
+      {serviceProviders.isLoading ? (
+        <ActivityIndicator color={colors.primary} style={{ marginBottom: 16 }} />
+      ) : (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.presetScroll}>
+          {serviceProviders.data?.map((provider) => {
+            const isSelected = serviceProviderId === provider.id;
+            return (
+              <Pressable
+                key={provider.id}
+                style={[styles.presetCard, isSelected && styles.presetCardActive]}
+                onPress={() => selectProvider(provider)}
+              >
+                <Text style={styles.presetLogo}>⭐</Text>
+                <Text style={[styles.presetName, isSelected && styles.presetTextActive]}>{provider.name}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      )}
 
-      <Text style={styles.label}>Servis Adı</Text>
+      <Text style={styles.label}>Servis Adı / Özel Ad</Text>
       <TextInput
         style={styles.input}
         value={name}
         onChangeText={(text) => {
           setName(text);
-          setSelectedPreset(null);
+          setServiceProviderId(undefined);
         }}
-        placeholder="Netflix, Spotify, ChatGPT Plus..."
+        placeholder="Netflix, Spotify, Özel Abonelik..."
         placeholderTextColor={colors.textMuted}
       />
 
@@ -150,16 +144,22 @@ export default function AddSubscriptionScreen() {
         placeholderTextColor={colors.textMuted}
       />
 
+      {/* Currency Selection List */}
       <Text style={styles.label}>Para Birimi</Text>
-      <TextInput
-        style={styles.input}
-        value={currency}
-        onChangeText={setCurrency}
-        autoCapitalize="characters"
-        maxLength={3}
-        placeholder="TRY"
-        placeholderTextColor={colors.textMuted}
-      />
+      <View style={styles.cycleRow}>
+        {SUPPORTED_CURRENCIES.map((curr) => {
+          const isSelected = currency === curr;
+          return (
+            <Pressable
+              key={curr}
+              style={[styles.cyclePill, isSelected && styles.cyclePillActive]}
+              onPress={() => setCurrency(curr)}
+            >
+              <Text style={[styles.cycleText, isSelected && styles.cycleTextActive]}>{curr}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
       <Text style={styles.label}>Fatura Döngüsü</Text>
       <View style={styles.cycleRow}>
@@ -244,7 +244,6 @@ const styles = StyleSheet.create({
   presetCardActive: { backgroundColor: colors.primaryDark, borderColor: colors.primaryDark },
   presetLogo: { fontSize: 24, marginBottom: 4 },
   presetName: { color: colors.text, fontSize: 13, fontWeight: '700', textAlign: 'center' },
-  presetPrice: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
   presetTextActive: { color: '#fff' },
 
   label: { fontSize: 13, color: colors.textMuted, marginBottom: 6, marginTop: 18 },

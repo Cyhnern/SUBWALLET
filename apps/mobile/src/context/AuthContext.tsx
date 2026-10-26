@@ -1,6 +1,9 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '../api/auth';
+import { usersApi } from '../api/users';
 import { tokenStorage } from '../api/token-storage';
+import { authEvents } from '../api/auth-events';
 import type { User } from '../types/api';
 
 interface AuthContextValue {
@@ -17,6 +20,16 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  // Oturum bitti olayını dinle (401/403 invalid refresh durumunda tetiklenir)
+  useEffect(() => {
+    const unsubscribe = authEvents.subscribe(() => {
+      queryClient.clear();
+      setUser(null);
+    });
+    return () => unsubscribe();
+  }, [queryClient]);
 
   // Uygulama açılışında kayıtlı bir token varsa, geçerliliğini /users/me ile doğrula.
   useEffect(() => {
@@ -28,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(me);
         }
       } catch {
-        await tokenStorage.clearTokens();
+        // Yalnızca /users/me 401/403 verdiğinde token'lar silinir (client.ts içindeki mantık)
       } finally {
         setIsLoading(false);
       }
@@ -55,13 +68,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function logout() {
+    // 1. Çıkış yapmadan önce cihaz push token kaydını temizle (Adım 11)
+    if (user?.deviceTokens?.[0]?.token) {
+      await usersApi.unregisterDevice(user.deviceTokens[0].token).catch(() => {});
+    }
+
+    // 2. Refresh token'ı iptal et
     const refreshToken = await tokenStorage.getRefreshToken();
     if (refreshToken) {
-      await authApi.logout(refreshToken).catch(() => {
-        // Sunucuya ulaşamasak bile yerel token'ları temizlemeye devam ediyoruz —
-        // kullanıcının cihazından çıkış yapabilmesi ağ durumuna bağlı olmamalı.
-      });
+      await authApi.logout(refreshToken).catch(() => {});
     }
+
+    // 3. Öncesindeki kullanıcı verisi sızmasın diye Query önbelleğini temizle
+    queryClient.clear();
     await tokenStorage.clearTokens();
     setUser(null);
   }
