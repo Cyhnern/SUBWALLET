@@ -10,14 +10,15 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
-import { SubscriptionStatus, PaymentMethod } from '@prisma/client';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
 import { SubscriptionsService } from './subscriptions.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
+import { ListSubscriptionsQueryDto } from './dto/list-subscriptions-query.dto';
 
 @ApiTags('subscriptions')
 @ApiBearerAuth()
@@ -34,32 +35,23 @@ export class SubscriptionsController {
   @Get()
   findAll(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('status') status?: SubscriptionStatus,
-    @Query('categoryId') categoryId?: string,
-    @Query('sharedAccountId') sharedAccountId?: string,
-    @Query('search') search?: string,
-    @Query('sortBy') sortBy?: 'nextBillingDate' | 'priceAsc' | 'priceDesc' | 'nameAsc' | 'nameDesc',
-    @Query('paymentMethod') paymentMethod?: PaymentMethod,
+    @Query() query: ListSubscriptionsQueryDto,
   ) {
-    return this.service.findAllForUser(user.id, {
-      status,
-      categoryId,
-      sharedAccountId,
-      search,
-      sortBy,
-      paymentMethod,
-    });
+    return this.service.findAllForUser(user.id, query);
   }
 
   @Get(':id')
-  findOne(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+  findOne(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.service.findOneOrFail(user.id, id);
   }
 
   @Patch(':id')
   update(
     @CurrentUser() user: AuthenticatedUser,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateSubscriptionDto,
   ) {
     return this.service.update(user.id, id, dto);
@@ -67,32 +59,50 @@ export class SubscriptionsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  remove(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+  remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.service.softDelete(user.id, id);
   }
 
   @Post(':id/pause')
-  pause(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+  pause(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.service.transitionStatus(user.id, id, 'paused');
   }
 
   @Post(':id/resume')
-  resume(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+  resume(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.service.transitionStatus(user.id, id, 'active');
   }
 
   @Post(':id/cancel')
-  cancel(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+  cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.service.transitionStatus(user.id, id, 'cancelled');
   }
 
   @Post(':id/mark-used')
-  markUsed(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+  markUsed(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.service.markUsed(user.id, id);
   }
 
   @Get(':id/history')
-  history(@CurrentUser() user: AuthenticatedUser, @Param('id') id: string) {
+  history(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.service.getHistory(user.id, id);
   }
 }

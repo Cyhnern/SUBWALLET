@@ -164,7 +164,7 @@ describe('Auth & Categories (e2e)', () => {
       .set('Authorization', `Bearer ${tokenB}`)
       .expect(200);
 
-    expect(searchResB.body).toEqual([]);
+    expect(searchResB.body.items).toEqual([]);
 
     await prisma.user.deleteMany({ where: { email: { in: [emailA, emailB] } } });
   });

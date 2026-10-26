@@ -28,18 +28,24 @@ export interface SubscriptionFilters {
   search?: string;
   sortBy?: 'nextBillingDate' | 'priceAsc' | 'priceDesc' | 'nameAsc' | 'nameDesc';
   categoryId?: string;
+  limit?: number;
+  cursor?: string;
 }
 
 export const subscriptionsApi = {
-  list: (filters?: SubscriptionFilters) => {
+  list: async (filters?: SubscriptionFilters) => {
     const params = new URLSearchParams();
     if (filters?.status && filters.status !== 'all') params.append('status', filters.status);
     if (filters?.search) params.append('search', filters.search);
     if (filters?.sortBy) params.append('sortBy', filters.sortBy);
     if (filters?.categoryId) params.append('categoryId', filters.categoryId);
+    if (filters?.limit) params.append('limit', String(filters.limit));
+    if (filters?.cursor) params.append('cursor', filters.cursor);
 
     const query = params.toString() ? `?${params.toString()}` : '';
-    return apiRequest<Subscription[]>(`/subscriptions${query}`);
+    const res = await apiRequest<{ items: Subscription[]; nextCursor?: string } | Subscription[]>(`/subscriptions${query}`);
+    if (Array.isArray(res)) return res;
+    return res.items ?? [];
   },
 
   get: (id: string) => apiRequest<Subscription>(`/subscriptions/${id}`),

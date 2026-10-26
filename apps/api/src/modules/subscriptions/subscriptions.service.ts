@@ -79,6 +79,8 @@ export class SubscriptionsService {
       search?: string;
       sortBy?: 'nextBillingDate' | 'priceAsc' | 'priceDesc' | 'nameAsc' | 'nameDesc';
       paymentMethod?: PaymentMethod;
+      limit?: number;
+      cursor?: string;
     },
   ) {
     if (filters.sharedAccountId) {
@@ -120,7 +122,12 @@ export class SubscriptionsService {
         }
       : undefined;
 
-    return this.prisma.subscription.findMany({
+    const limit = filters.limit ?? 20;
+    const take = limit + 1;
+
+    const items = await this.prisma.subscription.findMany({
+      take,
+      ...(filters.cursor ? { skip: 1, cursor: { id: filters.cursor } } : {}),
       where: {
         deletedAt: null,
         AND: [scope, ...(searchFilter ? [searchFilter] : [])],
@@ -131,6 +138,17 @@ export class SubscriptionsService {
       include: { serviceProvider: true, category: true },
       orderBy,
     });
+
+    let nextCursor: string | undefined = undefined;
+    if (items.length > limit) {
+      const nextItem = items.pop();
+      nextCursor = nextItem?.id;
+    }
+
+    return {
+      items,
+      nextCursor,
+    };
   }
 
   async findOneOrFail(userId: string, id: string) {
