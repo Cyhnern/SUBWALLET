@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
 export const INITIAL_SERVICE_PROVIDERS = [
@@ -20,6 +20,8 @@ export const INITIAL_SERVICE_PROVIDERS = [
 
 @Injectable()
 export class ServiceProvidersService implements OnModuleInit {
+  private readonly logger = new Logger(ServiceProvidersService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
@@ -28,16 +30,13 @@ export class ServiceProvidersService implements OnModuleInit {
 
   private async seedInitialProviders() {
     try {
-      const count = await this.prisma.serviceProvider.count();
-      if (count === 0) {
-        for (const provider of INITIAL_SERVICE_PROVIDERS) {
-          await this.prisma.serviceProvider.create({
-            data: provider,
-          });
-        }
-      }
+      await this.prisma.serviceProvider.createMany({
+        data: INITIAL_SERVICE_PROVIDERS,
+        skipDuplicates: true,
+      });
+      this.logger.log('Servis sağlayıcıları başarıyla tohumlandı (seeded)');
     } catch (e) {
-      // Ignore seeding errors on init if DB not ready yet
+      this.logger.error(`Servis sağlayıcıları tohumlama hatası: ${e}`);
     }
   }
 

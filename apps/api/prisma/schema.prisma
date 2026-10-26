@@ -213,8 +213,8 @@ model Subscription {
   costSplits      CostSplit[]
   notificationLogs NotificationLog[]
 
-  @@index([userId, status])
-  @@index([nextBillingDate])
+  @@index([userId, deletedAt, status])
+  @@index([status, nextBillingDate])
   @@index([sharedAccountId])
   @@map("subscriptions")
 }
