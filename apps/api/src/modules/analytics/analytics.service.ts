@@ -12,6 +12,16 @@ export interface BurnRateResult {
   exchangeRateStatus: ExchangeRateStatus;
 }
 
+function csvCell(val: unknown): string {
+  if (val === null || val === undefined) return '""';
+  let str = String(val);
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'` + str;
+  }
+  const escaped = str.replace(/"/g, '""');
+  return `"${escaped}"`;
+}
+
 @Injectable()
 export class AnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
@@ -200,15 +210,27 @@ export class AnalyticsService {
     });
 
     const lines: string[] = [];
-    lines.push(`"SUBWALLET ABONELIK & BUTCE RAPORU"`);
-    lines.push(`"Kullanici","${user.fullName} (${user.email})"`);
-    lines.push(`"Rapor Tarihi","${new Date().toLocaleDateString('tr-TR')}"`);
-    lines.push(`"Aylik Toplam Harcama","${burnRate.monthlyTotal} ${burnRate.currency}"`);
-    lines.push(`"Yillik Projeksiyon","${burnRate.yearlyTotal} ${burnRate.currency}"`);
-    lines.push(`"Aktif Abonelik Sayisi","${burnRate.subscriptionCount}"`);
+    lines.push([csvCell('SUBWALLET ABONELIK & BUTCE RAPORU')].join(','));
+    lines.push([csvCell('Kullanici'), csvCell(`${user.fullName} (${user.email})`)].join(','));
+    lines.push([csvCell('Rapor Tarihi'), csvCell(new Date().toLocaleDateString('tr-TR'))].join(','));
+    lines.push([csvCell('Aylik Toplam Harcama'), csvCell(`${burnRate.monthlyTotal} ${burnRate.currency}`)].join(','));
+    lines.push([csvCell('Yillik Projeksiyon'), csvCell(`${burnRate.yearlyTotal} ${burnRate.currency}`)].join(','));
+    lines.push([csvCell('Aktif Abonelik Sayisi'), csvCell(burnRate.subscriptionCount)].join(','));
     lines.push('');
 
-    lines.push(`"Abonelik/Servis Adı","Fiyat","Para Birimi","Döngü","Kategori","Durum","Sonraki Yenileme","Son Kullanım","Ortak Hesap"`);
+    lines.push(
+      [
+        csvCell('Abonelik/Servis Adı'),
+        csvCell('Fiyat'),
+        csvCell('Para Birimi'),
+        csvCell('Döngü'),
+        csvCell('Kategori'),
+        csvCell('Durum'),
+        csvCell('Sonraki Yenileme'),
+        csvCell('Son Kullanım'),
+        csvCell('Ortak Hesap'),
+      ].join(','),
+    );
 
     for (const sub of subs) {
       const name = sub.serviceProvider?.name ?? sub.customName ?? 'İsimsiz Abonelik';
@@ -218,17 +240,27 @@ export class AnalyticsService {
       const lastUsed = sub.lastUsedAt ? new Date(sub.lastUsedAt).toLocaleDateString('tr-TR') : '—';
 
       lines.push(
-        `"${name}","${sub.price}","${sub.currency}","${sub.billingCycle}","${category}","${sub.status}","${nextDate}","${lastUsed}","${shared}"`
+        [
+          csvCell(name),
+          csvCell(sub.price),
+          csvCell(sub.currency),
+          csvCell(sub.billingCycle),
+          csvCell(category),
+          csvCell(sub.status),
+          csvCell(nextDate),
+          csvCell(lastUsed),
+          csvCell(shared),
+        ].join(','),
       );
     }
 
     lines.push('');
-    lines.push(`"KATEGORI DAGILIMI"`);
-    lines.push(`"Kategori Adı","Aylık Tutar (${burnRate.currency})","Pay (%)"`);
+    lines.push([csvCell('KATEGORI DAGILIMI')].join(','));
+    lines.push([csvCell('Kategori Adı'), csvCell(`Aylık Tutar (${burnRate.currency})`), csvCell('Pay (%)')].join(','));
     for (const cat of categorySpending) {
-      lines.push(`"${cat.categoryName}","${cat.monthlyTotal}","%${cat.sharePercent}"`);
+      lines.push([csvCell(cat.categoryName), csvCell(cat.monthlyTotal), csvCell(`%${cat.sharePercent}`)].join(','));
     }
 
-    return lines.join('\n');
+    return lines.join('\r\n');
   }
 }
