@@ -1,11 +1,16 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
+
+  // --- Trust Proxy & Shutdown Hooks ---
+  app.set('trust proxy', 1);
+  app.enableShutdownHooks();
 
   // --- Güvenlik başlıkları ---
   app.use(helmet());
@@ -27,15 +32,17 @@ async function bootstrap() {
 
   app.setGlobalPrefix(process.env.API_PREFIX ?? 'api/v1');
 
-  // --- OpenAPI/Swagger dokümantasyonu ---
-  const config = new DocumentBuilder()
-    .setTitle('Subwallet API')
-    .setDescription('Abonelik ve cüzdan yönetimi süper uygulaması API dokümantasyonu')
-    .setVersion('0.1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document);
+  // --- OpenAPI/Swagger dokümantasyonu (Yalnızca geliştirme ortamında veya ENABLE_DOCS=true iken) ---
+  if (process.env.NODE_ENV !== 'production' || process.env.ENABLE_DOCS === 'true') {
+    const config = new DocumentBuilder()
+      .setTitle('Subwallet API')
+      .setDescription('Abonelik ve cüzdan yönetimi süper uygulaması API dokümantasyonu')
+      .setVersion('0.1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('docs', app, document);
+  }
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port, '0.0.0.0');

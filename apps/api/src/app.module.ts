@@ -14,12 +14,19 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { ServiceProvidersModule } from './modules/service-providers/service-providers.module';
 import { ReminderQueueModule } from './queues/reminder.module';
+import { validateEnv } from './common/config/env.validation';
+import { ThrottlerStorageRedisService } from './common/throttler/throttler-storage-redis.service';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
+    ThrottlerModule.forRootAsync({
+      useFactory: () => ({
+        storage: new ThrottlerStorageRedisService(),
+        throttlers: [{ ttl: 60_000, limit: 100 }],
+      }),
+    }),
     BullModule.forRoot({
       connection: {
         host: process.env.REDIS_HOST ?? 'localhost',
