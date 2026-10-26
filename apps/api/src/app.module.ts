@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { BullModule } from '@nestjs/bullmq';
 import { PrismaModule } from './common/prisma/prisma.module';
@@ -16,6 +16,7 @@ import { ServiceProvidersModule } from './modules/service-providers/service-prov
 import { ReminderQueueModule } from './queues/reminder.module';
 import { validateEnv } from './common/config/env.validation';
 import { ThrottlerStorageRedisService } from './common/throttler/throttler-storage-redis.service';
+import { CustomThrottlerGuard } from './common/guards/custom-throttler.guard';
 
 @Module({
   imports: [
@@ -48,7 +49,7 @@ import { ThrottlerStorageRedisService } from './common/throttler/throttler-stora
   providers: [
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: CustomThrottlerGuard,
     },
   ],
 })

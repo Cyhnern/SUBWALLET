@@ -133,6 +133,48 @@ describe('Auth & Categories (e2e)', () => {
       .expect(401);
   });
 
+  it('GEÇERSİZ PARA BİRİMİ R-3: JPY para birimi ile abonelik oluşturma 400 Bad Request döner', async () => {
+    const emailR3 = `e2e-r3-${Date.now()}@ornek.com`;
+    const regRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ email: emailR3, password: 'SuperGizli123!', fullName: 'R3 User' });
+    const token = regRes.body.accessToken;
+
+    await request(app.getHttpServer())
+      .post('/api/v1/subscriptions')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        customName: 'Yen Sub',
+        price: 1000,
+        currency: 'JPY',
+        billingCycle: 'monthly',
+        startDate: '2026-10-01',
+      })
+      .expect(400);
+
+    await prisma.user.deleteMany({ where: { email: emailR3 } });
+  });
+
+  it('ÇALINTI TOKEN TESPİTİ S-10/S-3: Kullanılmış refresh token tekrar kullanıldığında 401 döner', async () => {
+    const emailS3 = `e2e-s3-${Date.now()}@ornek.com`;
+    const regRes = await request(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ email: emailS3, password: 'SuperGizli123!', fullName: 'S3 User' });
+    const refreshToken = regRes.body.refreshToken;
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken })
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken })
+      .expect(401);
+
+    await prisma.user.deleteMany({ where: { email: emailS3 } });
+  });
+
   it('VERİ İZOLASYONU S-1: A kullanıcısı abonelik ekler, B kullanıcısı ?search= ile aradığında göremez (boş dizi döner)', async () => {
     const emailA = `e2e-a-${Date.now()}@ornek.com`;
     const emailB = `e2e-b-${Date.now()}@ornek.com`;
