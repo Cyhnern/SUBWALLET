@@ -1,11 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, UnauthorizedException, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { subDays } from 'date-fns';
+import * as argon2 from 'argon2';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
 import { RegisterDeviceDto } from './dto/register-device.dto';
+import { DeactivateAccountDto } from './dto/deactivate-account.dto';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async findMe(userId: string) {
@@ -52,7 +58,7 @@ export class UsersService {
         lastSeenAt: new Date(),
       },
       update: {
-        userId, // cihaz el değiştirirse yeni kullanıcıya otomatik transfer olur
+        userId,
         platform: dto.platform ?? undefined,
         lastSeenAt: new Date(),
       },
@@ -87,33 +93,76 @@ export class UsersService {
 
   /**
    * Hesabı KVKK (Unutulma Hakkı / Data Minimization) prensiplerine uygun olarak siler:
-   * 1. Kişisel tanımlanabilir verileri (PII: e-posta, ad soyad, avatar, cihaz token'ları, OAuth) anonimleştirir.
-   * 2. Parola ve hassas refresh token oturumlarını tamamen temizler.
-   * 3. Kişisel aktif abonelikleri iptal edip soft-delete yapar.
-   * 4. Ortak hesap üyeliklerinden (hesap sahibi hariç) çıkarır.
+   * 1. Parolalı kullanıcılarda parola doğrulaması yapar.
+   * 2. Sahib olduğu ortak hesaplarda sahipliği en kıdemli üyeye devreder veya hesabı siler.
+   * 3. Kişisel aboneliklerde notes, invoiceUrl ve customName alanlarını null yapar (soft-delete).
+   * 4. PII verileri anonimleştirir (tam userId ile e-posta).
    */
-  async deactivateAccount(userId: string) {
+  async deactivateAccount(userId: string, dto: DeactivateAccountDto) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Kullanıcı bulunamadı');
 
+    if (user.passwordHash && !user.oauthProvider) {
+      if (!dto.password) {
+        throw new BadRequestException('Hesabı silmek için parolanızı girmeniz gereklidir');
+      }
+      const isValid = await argon2.verify(user.passwordHash, dto.password).catch(() => false);
+      if (!isValid) {
+        throw new UnauthorizedException('Parola hatalı');
+      }
+    }
+
     return this.prisma.$transaction(async (tx) => {
-      // 1. Refresh token'ları ve cihaz token'larını sil (oturumları kapat)
+      // 1. Refresh token'ları ve cihaz token'larını sil
       await tx.refreshToken.deleteMany({ where: { userId } });
       await tx.deviceToken.deleteMany({ where: { userId } });
 
-      // 2. Kişisel abonelikleri iptal et
-      await tx.subscription.updateMany({
-        where: { userId, sharedAccountId: null },
-        data: { status: 'cancelled', deletedAt: new Date() },
+      // 2. Kullanıcının sahibi olduğu ortak hesapları yönet (en kıdemliye devret veya sil)
+      const ownedAccounts = await tx.sharedAccount.findMany({
+        where: { ownerId: userId },
+        include: {
+          members: {
+            where: { userId: { not: userId } },
+            orderBy: { joinedAt: 'asc' },
+          },
+        },
       });
 
-      // 3. Ortak hesap üyeliklerini temizle (sahibi olmadığı gruplar)
+      for (const acc of ownedAccounts) {
+        if (acc.members.length > 0) {
+          const newOwner = acc.members[0];
+          await tx.sharedAccount.update({
+            where: { id: acc.id },
+            data: { ownerId: newOwner.userId },
+          });
+          await tx.sharedAccountMember.update({
+            where: { sharedAccountId_userId: { sharedAccountId: acc.id, userId: newOwner.userId } },
+            data: { role: 'owner' },
+          });
+        } else {
+          await tx.sharedAccount.delete({ where: { id: acc.id } });
+        }
+      }
+
+      // 3. Kişisel aktif abonelikleri iptal et ve KVKK gereği hassas alanları null yap
+      await tx.subscription.updateMany({
+        where: { userId, sharedAccountId: null },
+        data: {
+          status: 'cancelled',
+          deletedAt: new Date(),
+          notes: null,
+          invoiceUrl: null,
+          customName: null,
+        },
+      });
+
+      // 4. Ortak hesap üyeliklerinden çıkar
       await tx.sharedAccountMember.deleteMany({
         where: { userId, role: { not: 'owner' } },
       });
 
-      // 4. KVKK Anonimleştirme: PII verileri temizle
-      const anonymizedEmail = `deleted_user_${userId.slice(0, 8)}@deleted.subwallet.app`;
+      // 5. KVKK Anonimleştirme: Tam userId ile benzersiz e-posta
+      const anonymizedEmail = `deleted_${userId}@deleted.subwallet.app`;
       return tx.user.update({
         where: { id: userId },
         data: {
@@ -128,5 +177,26 @@ export class UsersService {
         },
       });
     });
+  }
+
+  @Cron(CronExpression.EVERY_DAY_AT_4AM, { timeZone: 'UTC' })
+  async purgeSoftDeletedAccounts() {
+    const thirtyDaysAgo = subDays(new Date(), 30);
+    const softDeletedUsers = await this.prisma.user.findMany({
+      where: {
+        deletedAt: { lt: thirtyDaysAgo },
+        isActive: false,
+      },
+      select: { id: true },
+    });
+
+    for (const u of softDeletedUsers) {
+      try {
+        await this.prisma.user.delete({ where: { id: u.id } });
+        this.logger.log(`KVKK süresi dolan kullanıcı kalıcı olarak silindi: ${u.id}`);
+      } catch (err) {
+        this.logger.error(`Kullanıcı kalıcı silme hatası (userId=${u.id}): ${err}`);
+      }
+    }
   }
 }

@@ -9,6 +9,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -17,6 +18,7 @@ import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UpdateNotificationPreferencesDto } from './dto/update-notification-preferences.dto';
 import { RegisterDeviceDto } from './dto/register-device.dto';
+import { DeactivateAccountDto } from './dto/deactivate-account.dto';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -56,7 +58,10 @@ export class UsersController {
 
   @Delete('me')
   @HttpCode(HttpStatus.NO_CONTENT)
-  deactivate(@CurrentUser() user: AuthenticatedUser) {
-    return this.service.deactivateAccount(user.id);
+  deactivate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: DeactivateAccountDto,
+  ) {
+    return this.service.deactivateAccount(user.id, dto);
   }
 }
