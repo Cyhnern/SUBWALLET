@@ -128,13 +128,28 @@ export class AuthService {
     if (!user) {
       const existingUser = await this.prisma.user.findUnique({ where: { email } });
       if (existingUser) {
-        user = await this.prisma.user.update({
-          where: { id: existingUser.id },
-          data: {
-            oauthProvider: profile.provider,
-            oauthProviderId: profile.providerId,
-            emailVerifiedAt: existingUser.emailVerifiedAt ?? new Date(),
-          },
+        // Güvenlik: e-postası doğrulanmamış hesaba önceden konmuş bir parola (pre-hijacking)
+        // güvenilmezdir. OAuth ile sahiplik kanıtlandığında parolayı ve açık oturumları sıfırla.
+        const wasUnverified = !existingUser.emailVerifiedAt;
+        user = await this.prisma.$transaction(async (tx) => {
+          const updated = await tx.user.update({
+            where: { id: existingUser.id },
+            data: {
+              oauthProvider: profile.provider,
+              oauthProviderId: profile.providerId,
+              emailVerifiedAt: existingUser.emailVerifiedAt ?? new Date(),
+              ...(wasUnverified
+                ? { passwordHash: null, verificationToken: null, verificationTokenExpiresAt: null }
+                : {}),
+            },
+          });
+          if (wasUnverified) {
+            await tx.refreshToken.updateMany({
+              where: { userId: updated.id, revokedAt: null },
+              data: { revokedAt: new Date() },
+            });
+          }
+          return updated;
         });
       } else {
         user = await this.prisma.user.create({

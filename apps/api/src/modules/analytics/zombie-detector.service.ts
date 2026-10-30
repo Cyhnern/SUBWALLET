@@ -70,9 +70,13 @@ export class ZombieDetectorService {
     }
 
     // Sinyal 4 (%15): deneme süresi bitti ama hâlâ ücretli devam ediyor
+    // Yalnızca deneme bitişinden sonraki 14 gün: aksi halde deneme ile başlamış her abonelik kalıcı +15 alırdı
     if (sub.trialEndDate && isPast(sub.trialEndDate) && sub.status === 'active') {
-      score += 15;
-      reasons.push('Deneme süresi bitti, hâlâ ücretli devam ediyor');
+      const daysSinceTrial = Math.floor((Date.now() - sub.trialEndDate.getTime()) / 86_400_000);
+      if (daysSinceTrial <= 14) {
+        score += 15;
+        reasons.push('Deneme süresi yeni bitti, hâlâ ücretli devam ediyor');
+      }
     }
 
     return {

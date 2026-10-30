@@ -60,6 +60,14 @@ export class SharedAccountsController {
     return this.service.inviteMember(id, dto);
   }
 
+  // NOT: 'members/me' statik rotası, ':memberUserId' parametreli rotasından ÖNCE tanımlanmalı
+  @Delete(':id/members/me')
+  @UseGuards(SharedAccountRoleGuard)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  leaveAccount(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.service.leaveAccount(id, user.id);
+  }
+
   @Delete(':id/members/:memberUserId')
   @Roles('owner', 'admin')
   @UseGuards(SharedAccountRoleGuard)
@@ -70,12 +78,6 @@ export class SharedAccountsController {
     @Req() req: any,
   ) {
     return this.service.removeMember(id, memberUserId, req.sharedAccountMembership);
-  }
-
-  @Delete(':id/members/me')
-  @UseGuards(SharedAccountRoleGuard)
-  leaveAccount(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.service.leaveAccount(id, user.id);
   }
 
   @Post(':id/transfer-ownership')

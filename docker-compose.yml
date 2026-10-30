@@ -22,7 +22,7 @@ services:
     container_name: subwallet_redis
     restart: unless-stopped
     ports:
-      - "127.0.0.1:6379:6379"
+      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -33,13 +33,13 @@ services:
 
   # Kuyruk işlerini görsel takip için (opsiyonel, geliştirme ortamı)
   redis-commander:
-    image: rediscommander/redis-commander:0.8.0
+    image: rediscommander/redis-commander:latest
     container_name: subwallet_redis_ui
     restart: unless-stopped
     environment:
       REDIS_HOSTS: local:redis:6379
     ports:
-      - "127.0.0.1:8085:8081"
+      - "8085:8081"
     depends_on:
       - redis
 

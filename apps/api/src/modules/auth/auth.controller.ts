@@ -23,6 +23,7 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { AppleLoginDto } from './dto/apple-login.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
 import { ExchangeCodeDto } from './dto/exchange-code.dto';
+import { VerifyEmailQueryDto } from './dto/verify-email.dto';
 import { verifyGoogleIdToken, verifyAppleIdToken } from './oauth-verify.util';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser, AuthenticatedUser } from '../../common/decorators/current-user.decorator';
@@ -46,8 +47,8 @@ export class AuthController {
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @HttpCode(HttpStatus.OK)
   @Get('verify-email')
-  verifyEmail(@Query('token') token: string) {
-    return this.authService.verifyEmail(token);
+  verifyEmail(@Query() query: VerifyEmailQueryDto) {
+    return this.authService.verifyEmail(query.token);
   }
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } })

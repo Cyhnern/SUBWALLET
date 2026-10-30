@@ -20,7 +20,8 @@ import { GoogleStrategy } from './strategies/google.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, GoogleStrategy],
+  // Google OAuth env'leri yoksa (CI/yerel kurulum) strateji hiç kaydedilmez, uygulama yine açılır
+  providers: [AuthService, JwtStrategy, ...(process.env.GOOGLE_CLIENT_ID ? [GoogleStrategy] : [])],
   exports: [AuthService],
 })
 export class AuthModule {}

@@ -20,7 +20,10 @@ export class ExchangeRatesService implements OnModuleInit {
   private readonly logger = new Logger(ExchangeRatesService.name);
   private ratesCache: Record<string, number> = { ...FALLBACK_USD_RATES };
   private lastFetchTime = 0;
-  private readonly CACHE_TTL_MS = 60 * 60 * 1000;
+  private lastAttempt = 0;
+  private inFlight: Promise<void> | null = null;
+  private readonly CACHE_TTL_MS = 55 * 60 * 1000;
+  private readonly RETRY_MS = 60 * 1000;
 
   async onModuleInit() {
     void this.refreshRatesIfStale();
@@ -33,7 +36,7 @@ export class ExchangeRatesService implements OnModuleInit {
 
   getStatus(): ExchangeRateStatus {
     return {
-      source: this.lastFetchTime > 0 ? 'live' : 'fallback',
+      source: this.lastFetchTime > 0 && Date.now() - this.lastFetchTime < 6 * 60 * 60 * 1000 ? 'live' : 'fallback',
       asOf: this.lastFetchTime > 0 ? new Date(this.lastFetchTime) : null,
     };
   }
@@ -48,10 +51,20 @@ export class ExchangeRatesService implements OnModuleInit {
     return curr;
   }
 
-  async refreshRatesIfStale(): Promise<void> {
+  refreshRatesIfStale(): Promise<void> {
     const now = Date.now();
-    if (this.lastFetchTime > 0 && now - this.lastFetchTime < this.CACHE_TTL_MS) return;
+    const fresh = this.lastFetchTime > 0 && now - this.lastFetchTime < this.CACHE_TTL_MS;
+    // Taze ise ya da son deneme çok yeniyse (kesinti anında fırtına olmasın) dış istek yapma
+    if (fresh || now - this.lastAttempt < this.RETRY_MS) return this.inFlight ?? Promise.resolve();
+    this.inFlight ??= this.doRefresh().finally(() => {
+      this.inFlight = null;
+    });
+    return this.inFlight;
+  }
 
+  private async doRefresh(): Promise<void> {
+    const now = Date.now();
+    this.lastAttempt = now;
     try {
       const response = await fetch('https://open.er-api.com/v6/latest/USD', {
         signal: AbortSignal.timeout(5000),

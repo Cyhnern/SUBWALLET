@@ -102,7 +102,7 @@ export class UsersService {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('Kullanıcı bulunamadı');
 
-    if (user.passwordHash && !user.oauthProvider) {
+    if (user.passwordHash) {
       if (!dto.password) {
         throw new BadRequestException('Hesabı silmek için parolanızı girmeniz gereklidir');
       }
@@ -139,6 +139,11 @@ export class UsersService {
             where: { sharedAccountId_userId: { sharedAccountId: acc.id, userId: newOwner.userId } },
             data: { role: 'owner' },
           });
+          // Paylaşılan abonelikleri yeni sahibe taşı: kullanıcı purge edilince cascade ile kaybolmasın
+          await tx.subscription.updateMany({
+            where: { sharedAccountId: acc.id, userId },
+            data: { userId: newOwner.userId },
+          });
         } else {
           await tx.sharedAccount.delete({ where: { id: acc.id } });
         }
@@ -157,9 +162,8 @@ export class UsersService {
       });
 
       // 4. Ortak hesap üyeliklerinden çıkar
-      await tx.sharedAccountMember.deleteMany({
-        where: { userId, role: { not: 'owner' } },
-      });
+      // (sahiplik devrinden sonra olduğu için owner rolündeki eski satır da silinir: hayalet üye kalmaz)
+      await tx.sharedAccountMember.deleteMany({ where: { userId } });
 
       // 5. KVKK Anonimleştirme: Tam userId ile benzersiz e-posta
       const anonymizedEmail = `deleted_${userId}@deleted.subwallet.app`;

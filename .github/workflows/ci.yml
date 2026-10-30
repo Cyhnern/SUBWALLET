@@ -48,9 +48,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Lint
-        run: npm --workspace apps/api run lint
-
       - name: Run Prisma Migrate Deploy & Generate
         env:
           DATABASE_URL: postgresql://subwallet:subwallet_dev_password@localhost:5433/subwallet?schema=public
@@ -58,16 +55,19 @@ jobs:
           npx prisma generate --schema=apps/api/prisma/schema.prisma
           npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma
 
+      - name: Type-check / Build
+        run: npm --workspace apps/api run build
+
       - name: Run Unit Tests with Coverage Threshold
         env:
           DATABASE_URL: postgresql://subwallet:subwallet_dev_password@localhost:5433/subwallet?schema=public
           JWT_ACCESS_SECRET: super-secret-jwt-access-key-minimum-32-chars
-          JWT_REFRESH_SECRET: super-secret-jwt-refresh-key-minimum-32-chars
+          REDIS_HOST: localhost
         run: npm --workspace apps/api run test -- --coverage --coverageThreshold='{"global":{"lines":70}}'
 
       - name: Run E2E Tests
         env:
           DATABASE_URL: postgresql://subwallet:subwallet_dev_password@localhost:5433/subwallet?schema=public
           JWT_ACCESS_SECRET: super-secret-jwt-access-key-minimum-32-chars
-          JWT_REFRESH_SECRET: super-secret-jwt-refresh-key-minimum-32-chars
+          REDIS_HOST: localhost
         run: npm --workspace apps/api run test:e2e

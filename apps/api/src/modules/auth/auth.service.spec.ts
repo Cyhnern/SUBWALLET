@@ -20,6 +20,7 @@ describe('AuthService', () => {
     prisma = {
       user: { findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn() },
       refreshToken: { create: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+      $transaction: jest.fn((cb: any) => cb(prisma)),
     };
 
     const module = await Test.createTestingModule({

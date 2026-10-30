@@ -98,7 +98,7 @@ describe('ZombieDetectorService', () => {
     } as any);
 
     expect(result.score).toBe(15);
-    expect(result.reasons).toContain('Deneme süresi bitti, hâlâ ücretli devam ediyor');
+    expect(result.reasons[0]).toMatch(/Deneme süresi/);
   });
 
   it('aynı kategoride başka aktif abonelik varsa mükerrer sinyali ekler', async () => {
